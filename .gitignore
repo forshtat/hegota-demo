@@ -1,0 +1,12 @@
+.idea/
+.env
+/frontend/.env
+/artifacts/**/*.dbg.json
+/artifacts/build-info/
+/cache/
+/node_modules/
+/frontend/node_modules/
+/frontend/dist/
+/dist/
+jwt.hex
+/.superpowers/

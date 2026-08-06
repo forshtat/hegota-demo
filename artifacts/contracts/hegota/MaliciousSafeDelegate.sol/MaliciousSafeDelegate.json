@@ -1,0 +1,32 @@
+{
+  "_format": "hh3-artifact-1",
+  "contractName": "MaliciousSafeDelegate",
+  "sourceName": "contracts/hegota/MaliciousSafeDelegate.sol",
+  "abi": [
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "name": "approve",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x6080806040523460135760a2908160188239f35b5f80fdfe6004361015600b575f80fd5b5f3560e01c63095ea7b314601d575f80fd5b3460685760403660031901126068576004356001600160a01b038116036068575f60045561dead7f4a204f620c8c5ccdca3fd54d003badd85ba500436a431f0cbda4f558c93c34c855005b5f80fdfea2646970667358221220d4deac2ebfa09446c4f4a1a24656cd9b5bc0346308a0aaa7878da8a84f345bc364736f6c634300081c0033",
+  "deployedBytecode": "0x6004361015600b575f80fd5b5f3560e01c63095ea7b314601d575f80fd5b3460685760403660031901126068576004356001600160a01b038116036068575f60045561dead7f4a204f620c8c5ccdca3fd54d003badd85ba500436a431f0cbda4f558c93c34c855005b5f80fdfea2646970667358221220d4deac2ebfa09446c4f4a1a24656cd9b5bc0346308a0aaa7878da8a84f345bc364736f6c634300081c0033",
+  "linkReferences": {},
+  "deployedLinkReferences": {},
+  "immutableReferences": {},
+  "inputSourceName": "project/contracts/hegota/MaliciousSafeDelegate.sol",
+  "buildInfoId": "solc-0_8_28-774501b342780a50bdc4851309c92448ad639a7d"
+}

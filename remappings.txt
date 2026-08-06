@@ -1,0 +1,9 @@
+@metamask/delegation-framework/=lib/delegation-framework/src/
+@erc7579/=lib/delegation-framework/lib/erc7579-implementation/src/
+@account-abstraction/=lib/delegation-framework/lib/account-abstraction/contracts/
+account-abstraction/=lib/delegation-framework/lib/account-abstraction/contracts/
+@openzeppelin/contracts/=lib/delegation-framework/lib/openzeppelin-contracts/contracts/
+openzeppelin-contracts/=lib/delegation-framework/lib/openzeppelin-contracts/
+@SCL/=lib/delegation-framework/lib/SCL/src/
+@FCL/=lib/delegation-framework/lib/FCL/solidity/src/
+@solidity/=lib/delegation-framework/lib/SCL/src/

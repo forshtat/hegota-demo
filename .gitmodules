@@ -1,0 +1,9 @@
+[submodule "lib/delegation-framework"]
+	path = lib/delegation-framework
+	url = https://github.com/MetaMask/delegation-framework.git
+	# pinned to v1.3.0 (bfbdf97) — update with: git -C lib/delegation-framework checkout vX.Y.Z
+[submodule "lib/minimal-shielded-pool"]
+	path = lib/minimal-shielded-pool
+	url = https://github.com/soispoke/minimal-shielded-pool.git
+	# pinned to fb02e3c (2026-07-15, "Make self-payment canonical") — update with:
+	# git -C lib/minimal-shielded-pool checkout <sha>
