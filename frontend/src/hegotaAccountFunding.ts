@@ -10,7 +10,7 @@
 
 import { Interface, MaxUint256, type BrowserProvider, type JsonRpcSigner, type Wallet } from "ethers";
 import { MockERC20ABI } from "./contracts/abis.js";
-import { connectRelayWallet, connectFaucetWallet, lowFeeOverrides } from "./hegotaWallet.js";
+import { connectRelayWallet, lowFeeOverrides } from "./hegotaWallet.js";
 import { prepareViaErc7579Account } from "./hegotaScenarios/types.js";
 import { encodeExecuteAction, HEGOTA_POST_TX_EXECUTOR } from "./erc7579Account.js";
 import { HEGOTA_IN_TOKEN, HEGOTA_MOCK_SWAP } from "./hegotaMinOutput.js";
@@ -35,9 +35,6 @@ export async function isAccountFunded(provider: BrowserProvider, accountAddress:
 // sendTransaction/.wait()): once a recent block contains a frame transaction, ethers'
 // internal block-confirmation polling (used by those convenience methods) can crash trying
 // to parse it as a legacy/EIP-1559-shaped transaction (see hegotaMinOutput.ts's sandwichRate).
-// Takes an explicit, already-provider-connected signer wallet (not hardcoded to the relay key)
-// so the same helper sponsors both the relay's existing fund/approve flow and the faucet's
-// separate funded key below.
 async function sendSigned(
   provider: BrowserProvider,
   signerWallet: Wallet,
@@ -74,21 +71,24 @@ async function sendSigned(
   throw new Error(`Transaction ${txHash} did not confirm within the poll window`);
 }
 
-/** Sends a plain ETH top-up from the Private Swap faucet key to `toAddress` -- used by the
- *  sidebar's Faucet button. Unlike the relay key's sponsored transfers above, this key exists
- *  for exactly this one purpose (see the .env comment next to VITE_HEGOTA_FAUCET_PRIVATE_KEY). */
-export async function sendHegotaFaucet(
-  provider: BrowserProvider,
-  chainId: number,
-  toAddress: string,
-  amountWei: bigint,
-): Promise<string> {
-  const faucet = connectFaucetWallet(provider);
-  // Not the usual 21,000: Hegotá's EIP-8037 per-byte state-gas repricing makes an
-  // account-creating transfer (the demo wallet's addresses are freshly generated and have
-  // never touched this chain before) cost far more than historical Ethereum -- the public
-  // faucet's own docs warn ~210,000 gas for exactly this case.
-  return sendSigned(provider, faucet, toAddress, "0x", 250_000n, chainId, amountWei);
+const FAUCET_CLAIM_URL = "https://faucet.hegota.ethrex.xyz/api/claim";
+
+/** Claims Hegotá testnet ETH for `toAddress` from the official public faucet -- used by the
+ *  sidebar's Faucet button. The faucet controls the amount (currently 1 ETH per claim) and
+ *  rate-limits by IP itself; this is a same-origin-only endpoint (it 403s any request carrying
+ *  a browser Origin header from a different origin), so this only works once that restriction
+ *  is lifted or relaxed for this app's origin. No client-held key is involved -- the faucet's
+ *  own operator key pays and signs the transfer server-side. */
+export async function claimHegotaFaucet(toAddress: string): Promise<void> {
+  const res = await fetch(FAUCET_CLAIM_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ address: toAddress }),
+  });
+  const body = await res.json().catch(() => ({}) as { msg?: unknown });
+  if (!res.ok) {
+    throw new Error(typeof body.msg === "string" ? body.msg : `Faucet claim failed (${res.status})`);
+  }
 }
 
 export interface FundAndApproveResult {

@@ -29,16 +29,17 @@ import DrawIcon from "@mui/icons-material/Draw";
 import LockIcon from "@mui/icons-material/Lock";
 import type { ReactNode } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { formatEther } from "ethers";
 import { useTour } from "../../contexts/TourContext.js";
 import { useWallet } from "../../contexts/WalletContext.js";
 import { appKit } from "../../wallet.js";
-import { HEGOTA_CHAIN_ID, isFaucetConfigured } from "../../hegotaWallet.js";
-import { sendHegotaFaucet } from "../../hegotaAccountFunding.js";
+import { HEGOTA_CHAIN_ID } from "../../hegotaWallet.js";
+import { claimHegotaFaucet } from "../../hegotaAccountFunding.js";
 import { formatWalletError } from "../../errorFormat.js";
 import { useTxToast } from "../../toast.js";
 
-const FAUCET_AMOUNT = 20_000_000_000_000_000n; // 0.02 ETH
+// The official public faucet controls the claim amount itself (currently 1 ETH per claim,
+// per https://faucet.hegota.ethrex.xyz's docs) -- not something this app configures.
+const FAUCET_DISPLAY_AMOUNT = "1 ETH";
 
 const DRAWER_WIDTH = 260;
 const NAV_ICON_SX = { fontSize: 16 };
@@ -98,26 +99,29 @@ export default function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
   const { completedPaths, resetProgress } = useTour();
-  const { isConnected, isHegota, address, provider } = useWallet();
+  const { isConnected, isHegota, address } = useWallet();
   const { notifyMined, notifyError } = useTxToast();
   const [faucetBusy, setFaucetBusy] = useState(false);
 
-  const showFaucet = isConnected && isHegota && isFaucetConfigured();
+  const showFaucet = isConnected && isHegota;
 
   const nav = (path: string) => () => navigate(path);
   const sel = (path: string) => location.pathname === path;
 
   async function handleFaucet() {
-    if (!provider || !address) return;
+    if (!address) return;
     setFaucetBusy(true);
     try {
-      const txHash = await sendHegotaFaucet(provider, HEGOTA_CHAIN_ID, address, FAUCET_AMOUNT);
-      // The faucet transfer is a raw eth_sendRawTransaction outside AppKit's own connector, so
-      // AppKit never sees it as a pending transaction and won't refresh its balance on its own.
+      await claimHegotaFaucet(address);
+      // The faucet's transfer happens server-side (we get no txHash to await), and AppKit
+      // never sees it as a pending transaction either way -- give it one slot (6s, see the
+      // Hegotá devnet's own docs) before refreshing the balance, then notify regardless of
+      // whether it landed by then, since the claim itself did succeed.
+      await new Promise((r) => setTimeout(r, 8000));
       await appKit.updateNativeBalance(address, HEGOTA_CHAIN_ID, "eip155");
-      notifyMined(`Faucet sent ${formatEther(FAUCET_AMOUNT)} ETH`, "success", txHash);
+      notifyMined(`Faucet claimed (${FAUCET_DISPLAY_AMOUNT})`, "success");
     } catch (e) {
-      notifyError(`Faucet transfer failed — ${formatWalletError(e)}`);
+      notifyError(`Faucet claim failed — ${formatWalletError(e)}`);
     } finally {
       setFaucetBusy(false);
     }
@@ -229,7 +233,7 @@ export default function Sidebar() {
               onClick={handleFaucet}
               sx={{ color: "text.secondary", borderColor: "divider" }}
             >
-              {faucetBusy ? "Sending…" : `Faucet +${formatEther(FAUCET_AMOUNT)} ETH`}
+              {faucetBusy ? "Claiming…" : `Faucet +${FAUCET_DISPLAY_AMOUNT}`}
             </Button>
           )}
           <appkit-button />

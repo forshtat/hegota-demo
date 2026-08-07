@@ -23,7 +23,6 @@ import type { FrameSigner } from "./frameSigning.js";
 
 export const HEGOTA_CHAIN_ID = parseInt(import.meta.env.VITE_HEGOTA_CHAIN_ID ?? "3151908");
 const PRIVATE_KEY = import.meta.env.VITE_HEGOTA_PRIVATE_KEY ?? "";
-const FAUCET_PRIVATE_KEY = import.meta.env.VITE_HEGOTA_FAUCET_PRIVATE_KEY ?? "";
 export const HEGOTA_TEST_SUBJECT = import.meta.env.VITE_HEGOTA_TEST_SUBJECT ?? "";
 
 // No provider attached: this wallet only ever produces a raw digest signature and
@@ -42,23 +41,6 @@ export function hegotaAddress(): string {
  *  (non-frame) transactions, e.g. one-time ERC-7579 account provisioning. */
 export function connectRelayWallet(provider: BrowserProvider): Wallet {
   return getWallet().connect(provider);
-}
-
-// Separate, well-funded key sponsoring only Private Swap's deposit-side faucet button --
-// deliberately not the same wallet as getWallet() above, so this can't affect anything the
-// relay key already sponsors elsewhere in the app. See the matching .env comment.
-let faucetWallet: Wallet | null = null;
-function getFaucetWallet(): Wallet {
-  if (!faucetWallet) faucetWallet = new Wallet(FAUCET_PRIVATE_KEY);
-  return faucetWallet;
-}
-
-export function isFaucetConfigured(): boolean {
-  return Boolean(FAUCET_PRIVATE_KEY);
-}
-
-export function connectFaucetWallet(provider: BrowserProvider): Wallet {
-  return getFaucetWallet().connect(provider);
 }
 
 /** Hegotá's fee-suggestion RPCs (eth_gasPrice / eth_maxPriorityFeePerGas) return a flat
