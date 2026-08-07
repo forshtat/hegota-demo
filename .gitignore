@@ -1,6 +1,7 @@
 .idea/
-.env
-/frontend/.env
+/.env
+/.env.local
+/frontend/.env.local
 /artifacts/**/*.dbg.json
 /artifacts/build-info/
 /cache/

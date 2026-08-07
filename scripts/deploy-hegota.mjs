@@ -174,7 +174,6 @@ async function main() {
     HEGOTA_BLOCK_START,
     `VITE_HEGOTA_CHAIN_ID=${chainId}`,
     `VITE_HEGOTA_RPC_URL=${rpcUrl}`,
-    `VITE_HEGOTA_PRIVATE_KEY=${privateKey}`,
     `VITE_HEGOTA_TEST_SUBJECT=${testSubject}`,
     `VITE_HEGOTA_REQUIRED_EVENT_ASSERTION=${requiredEventAssertion}`,
     `VITE_HEGOTA_OWNER_VALIDATOR=${ownerValidator}`,
@@ -202,6 +201,21 @@ async function main() {
 
   console.log(`\nWriting Hegotá section to ${envPath}`);
   writeFileSync(envPath, merged);
+
+  // ── VITE_HEGOTA_PRIVATE_KEY is a client-bundled secret -- write it to the gitignored
+  // frontend/.env.local instead of the trackable frontend/.env, preserving any other keys
+  // already there (e.g. VITE_HEGOTA_FAUCET_PRIVATE_KEY, which no script manages). ──
+
+  const localEnvPath = path.join(FRONTEND, ".env.local");
+  let existingLocal = existsSync(localEnvPath) ? readFileSync(localEnvPath, "utf8") : "";
+  const keyLineRe = /^VITE_HEGOTA_PRIVATE_KEY=.*$/m;
+  const keyLine = `VITE_HEGOTA_PRIVATE_KEY=${privateKey}`;
+  existingLocal = keyLineRe.test(existingLocal)
+    ? existingLocal.replace(keyLineRe, keyLine)
+    : existingLocal.replace(/\n*$/, "\n") + keyLine + "\n";
+
+  console.log(`Writing VITE_HEGOTA_PRIVATE_KEY to ${localEnvPath}`);
+  writeFileSync(localEnvPath, existingLocal);
 
   console.log("\nDone. Run: npm run dev, then open /post-tx-assertion\n");
 }
