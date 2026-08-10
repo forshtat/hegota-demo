@@ -29,7 +29,17 @@ export const HEGOTA_TEST_SUBJECT = import.meta.env.VITE_HEGOTA_TEST_SUBJECT ?? "
 // reports its own address — it never sends anything itself.
 let wallet: Wallet | null = null;
 function getWallet(): Wallet {
-  if (!wallet) wallet = new Wallet(PRIVATE_KEY);
+  if (!wallet) {
+    if (!PRIVATE_KEY) {
+      throw new Error(
+        "Hegotá relay wallet is not configured (VITE_HEGOTA_PRIVATE_KEY is missing from this build) " +
+          "-- account provisioning, faucet-adjacent actions, and every frame-tx demo need it. " +
+          "If you're seeing this on the deployed site, the site operator needs to set " +
+          "VITE_HEGOTA_PRIVATE_KEY as a Cloudflare Workers Builds environment variable and redeploy.",
+      );
+    }
+    wallet = new Wallet(PRIVATE_KEY);
+  }
   return wallet;
 }
 
