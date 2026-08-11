@@ -1,11 +1,10 @@
 // Connect once, fund the demo wallet, provision both accounts, and save the browser state so
 // every scenario test starts from a ready wallet instead of re-provisioning (each fresh context
-// generates new autowallet keys, which would mean a new account + a new faucet claim per test).
+// generates new autowallet keys, which would mean a new account per test).
 //
-// Funding does NOT go through the app's faucet button: that endpoint is IP rate-limited to
-// roughly one claim an hour, so a suite that used it would fail on its second test. A prefunded
-// devnet account transfers directly instead. The faucet button is still exercised separately as
-// its own health check.
+// Funding does NOT go through the app's faucet button: that endpoint is rate limited per source
+// IP, so a suite that used it would fail on its second run. A prefunded devnet account transfers
+// directly instead. The faucet is still exercised as its own check in demo.spec.mjs.
 
 import { chromium } from "@playwright/test";
 import { JsonRpcProvider, HDNodeWallet, Mnemonic, Wallet, parseEther } from "ethers";
@@ -16,6 +15,75 @@ const RPC = process.env.DEMO_RPC_URL ?? "https://rpc1.hegota.ethrex.xyz";
 // is a well-known test vector, not a secret. Override with DEMO_FUNDER_KEY to use another account.
 const MNEMONIC =
   "giant issue aisle success illegal bike spike question tent bar rely arctic volcano long crawl hungry vocal artwork sniff fantasy very lucky have athlete";
+
+const STEPS = [
+  {
+    title: "Step 1 — Provision your smart account",
+    button: "Set up my account",
+    chip: "Deployed",
+    required: true,
+  },
+  {
+    title: "Step 2 — Fund & approve",
+    button: "Fund & approve",
+    chip: "Funded & approved",
+    required: true,
+  },
+  {
+    // Only the Control-Plane Takeover scenario needs the Safe, and this step submits a self-paid
+    // frame transaction that can revert on its own. Treat it as best effort: a failure here should
+    // surface as that one scenario failing, not as the whole suite refusing to start.
+    title: "Step 3 — Provision your personal demo Safe",
+    button: "Set up my Safe",
+    chip: "Deployed",
+    required: false,
+  },
+];
+
+// Poll for the step's own success chip AND for an error alert in the same card. Waiting only for
+// the chip turns a step that failed in two seconds into a full-length timeout with no reason
+// attached, which is what made setup look flaky rather than broken.
+async function settle(page, card, chip, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  const done = card.getByText(chip, { exact: true }).first();
+  const alerts = card.locator(".MuiAlert-root");
+  while (Date.now() < deadline) {
+    if (await done.isVisible().catch(() => false)) return { ok: true };
+    const count = await alerts.count().catch(() => 0);
+    for (let i = 0; i < count; i++) {
+      const text = (await alerts.nth(i).innerText().catch(() => "")).trim();
+      if (/revert|failed|error/i.test(text)) return { ok: false, reason: text.replace(/\s+/g, " ") };
+    }
+    await page.waitForTimeout(2000);
+  }
+  return { ok: false, reason: `no "${chip}" and no error within ${Math.round(timeoutMs / 1000)}s` };
+}
+
+async function runStep(page, step, attempts = 3) {
+  // Scope everything to the step's own card. Steps 1 and 3 both report "Deployed", so an unscoped
+  // lookup matches step 1's chip and step 3 reports success without ever running -- which then
+  // shows up much later as the Safe scenario being permanently unarmable.
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const card = page.locator(".MuiPaper-root").filter({ hasText: step.title }).last();
+    const done = card.getByText(step.chip, { exact: true }).first();
+    if (await done.isVisible().catch(() => false)) return { ok: true };
+
+    const btn = card.getByRole("button", { name: step.button }).first();
+    await btn.waitFor({ state: "visible", timeout: 60_000 });
+    for (let i = 0; i < 60 && (await btn.isDisabled()); i++) await page.waitForTimeout(2000);
+    if (await btn.isDisabled()) return { ok: false, reason: `"${step.button}" never became enabled` };
+
+    await btn.click();
+    const result = await settle(page, card, step.chip, 120_000);
+    if (result.ok) return result;
+
+    console.warn(`  [setup] ${step.button} attempt ${attempt}/${attempts} failed: ${result.reason}`);
+    if (attempt === attempts) return result;
+    // Reload so the next attempt reads fresh on-chain state rather than the failed render.
+    await page.reload({ waitUntil: "networkidle" });
+  }
+  return { ok: false, reason: "exhausted attempts" };
+}
 
 export default async function globalSetup() {
   const browser = await chromium.launch();
@@ -38,22 +106,18 @@ export default async function globalSetup() {
   console.log(`  [setup] funded ${addr} with 10 ETH`);
 
   await page.goto(URL + "/account-setup", { waitUntil: "networkidle" });
-  // Scope each status chip to its own step card. Steps 1 and 3 both report "Deployed", so an
-  // unscoped lookup matches step 1's chip and step 3 reports success without ever running --
-  // which then shows up much later as the Safe scenario being permanently unarmable.
-  for (const [step, button, chip] of [
-    ["Step 1 — Provision your smart account", "Set up my account", "Deployed"],
-    ["Step 2 — Fund & approve", "Fund & approve", "Funded & approved"],
-    ["Step 3 — Provision your personal demo Safe", "Set up my Safe", "Deployed"],
-  ]) {
-    const card = page.locator(".MuiPaper-root").filter({ hasText: step }).last();
-    const btn = card.getByRole("button", { name: button }).first();
-    await btn.waitFor({ state: "visible", timeout: 60_000 });
-    for (let i = 0; i < 60 && (await btn.isDisabled()); i++) await page.waitForTimeout(2000);
-    if (await btn.isDisabled()) throw new Error(`setup step "${button}" never became enabled`);
-    await btn.click();
-    await card.getByText(chip, { exact: true }).first().waitFor({ state: "visible", timeout: 180_000 });
-    console.log(`  [setup] ${button}: ${chip}`);
+  for (const step of STEPS) {
+    const { ok, reason } = await runStep(page, step);
+    if (ok) {
+      console.log(`  [setup] ${step.button}: ${step.chip}`);
+    } else if (step.required) {
+      throw new Error(`setup step "${step.button}" failed: ${reason}`);
+    } else {
+      console.warn(
+        `  [setup] WARNING ${step.button} could not be provisioned (${reason}). ` +
+          `Scenarios that need it will fail with that reason.`,
+      );
+    }
   }
 
   await ctx.storageState({ path: "e2e/.auth/state.json" });

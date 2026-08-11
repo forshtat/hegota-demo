@@ -145,15 +145,25 @@ test("the site loads without console errors", async ({ page }) => {
 // visitor with no ETH cannot run anything. The faucet button is the only route the app offers, and
 // its failure surfaces as an opaque "validation prefix frame reverted" at submit time rather than
 // as anything about funding, so it is worth checking on its own.
+// Reported as a warning rather than a failure: the rate limit is a property of where the suite
+// runs from, not of the deployment, so failing on it would make a red run mean nothing. A faucet
+// that is unreachable or erroring IS a deployment problem, so that still fails.
 test("the faucet can fund a visitor who arrives with nothing", async ({ request }) => {
   const address = "0x" + "e2e0".repeat(10);
   const res = await request.post(`${FAUCET}/api/claim`, { data: { address }, failOnStatusCode: false });
-  expect(
-    res.status(),
-    `faucet returned ${res.status()}: ${await res.text()}. It is rate limited per source IP, ` +
-      `so anyone sharing an address with a recent claimant cannot fund a wallet, and every ` +
-      `scenario then fails at submit with "validation prefix frame reverted".`,
-  ).toBeLessThan(400);
+  const body = (await res.text()).replace(/\s+/g, " ").trim();
+
+  if (res.status() === 429) {
+    const warning =
+      `faucet rate limited (${body}). It limits per source IP, so anyone sharing an address ` +
+      `with a recent claimant cannot fund a wallet, and every scenario then fails at submit ` +
+      `with the opaque "validation prefix frame reverted".`;
+    console.warn(`  WARNING  ${warning}`);
+    test.info().annotations.push({ type: "warning", description: warning });
+    return;
+  }
+
+  expect(res.status(), `faucet returned ${res.status()}: ${body}`).toBeLessThan(400);
 });
 
 for (const { path, name, kind } of SCENARIOS) {
