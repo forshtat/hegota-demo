@@ -2,9 +2,11 @@
 // every scenario test starts from a ready wallet instead of re-provisioning (each fresh context
 // generates new autowallet keys, which would mean a new account per test).
 //
-// Funding does NOT go through the app's faucet button: that endpoint is rate limited per source
-// IP, so a suite that used it would fail on its second run. A prefunded devnet account transfers
-// directly instead. The faucet is still exercised as its own check in demo.spec.mjs.
+// Funding comes from a prefunded devnet account rather than the public faucet, which is rate
+// limited per source IP and would make the suite unrunnable from any address that claimed
+// recently. Provisioning calls that faucet itself, so the claim endpoint is served locally too
+// (see the route below) -- the money moves for real, only the rate-limited hop is replaced. The
+// faucet is still checked on its own in demo.spec.mjs.
 
 import { chromium } from "@playwright/test";
 import { JsonRpcProvider, HDNodeWallet, Mnemonic, Wallet, parseEther } from "ethers";
@@ -88,6 +90,36 @@ async function runStep(page, step, attempts = 3) {
 export default async function globalSetup() {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 } });
+
+  const provider = new JsonRpcProvider(RPC);
+  const funder = process.env.DEMO_FUNDER_KEY
+    ? new Wallet(process.env.DEMO_FUNDER_KEY, provider)
+    : HDNodeWallet.fromMnemonic(Mnemonic.fromPhrase(MNEMONIC), "m/44'/60'/0'/0/1").connect(provider);
+
+  // Provisioning calls the public faucet unconditionally and throws if the claim fails, so a
+  // suite running from an IP that claimed recently can never get past step 1 -- and because the
+  // claim is rate limited rather than broken, that would be a red run that says nothing about the
+  // deployment. Serve the claim locally instead: the transfer is a real on-chain send from a
+  // prefunded devnet account to the exact address the app asked for, so everything downstream
+  // (balance polling, the self-paid deploy+self_verify frame transaction) stays genuine. Only the
+  // rate-limited third-party hop is replaced. The real faucet is still checked in demo.spec.mjs.
+  await ctx.route(/faucet\.hegota\.ethrex\.xyz\/api\/claim/, async (route) => {
+    let address;
+    try {
+      ({ address } = JSON.parse(route.request().postData() ?? "{}"));
+    } catch {
+      return route.fulfill({ status: 400, body: '{"msg":"bad request"}' });
+    }
+    if (!address) return route.fulfill({ status: 400, body: '{"msg":"no address"}' });
+    await (await funder.sendTransaction({ to: address, value: parseEther("2") })).wait();
+    console.log(`  [setup] served faucet claim for ${address} (2 ETH)`);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ msg: "ok" }),
+    });
+  });
+
   const page = await ctx.newPage();
 
   await page.goto(URL, { waitUntil: "networkidle", timeout: 60_000 });
@@ -98,10 +130,7 @@ export default async function globalSetup() {
   const [addr] = await page.evaluate(() => window.ethereum.request({ method: "eth_accounts" }));
   if (!addr) throw new Error("demo wallet did not connect");
 
-  const provider = new JsonRpcProvider(RPC);
-  const funder = process.env.DEMO_FUNDER_KEY
-    ? new Wallet(process.env.DEMO_FUNDER_KEY, provider)
-    : HDNodeWallet.fromMnemonic(Mnemonic.fromPhrase(MNEMONIC), "m/44'/60'/0'/0/1").connect(provider);
+  // Step 3 (the Safe) is paid from the connected wallet's own ETH rather than the account's.
   await (await funder.sendTransaction({ to: addr, value: parseEther("10") })).wait();
   console.log(`  [setup] funded ${addr} with 10 ETH`);
 
