@@ -150,8 +150,26 @@ const SCENARIOS = [
   ["ERC-7579 frame tx", "verify-erc7579-frametx"],
 ];
 
-function runScenarios() {
+// Every scenario signs from the same relay key and picks its nonce from "latest", never
+// "pending" (frame transactions break ethers' pending-block parsing). Back to back that
+// collides: the previous scenario's transaction is still in the mempool, so "latest" hands
+// the next one the same nonce and it is rejected. Drain the relay's mempool between
+// scenarios so a batch run measures the scenarios rather than the collision.
+async function waitForRelayDrain(relay) {
+  for (let i = 0; i < 30; i++) {
+    const [pending, latest] = await Promise.all([
+      provider.send("eth_getTransactionCount", [relay, "pending"]),
+      provider.send("eth_getTransactionCount", [relay, "latest"]),
+    ]);
+    if (pending === latest) return true;
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  return false;
+}
+
+async function runScenarios(relay) {
   for (const [label, script] of SCENARIOS) {
+    await waitForRelayDrain(relay);
     try {
       execFileSync("node", [new URL(`./${script}.mjs`, import.meta.url).pathname], {
         stdio: "pipe",
@@ -159,9 +177,15 @@ function runScenarios() {
       });
       record(label, true);
     } catch (e) {
+      // Report the innermost message: ethers wraps RPC failures in "could not coalesce
+      // error", which says nothing about what actually went wrong.
       const out = `${e.stdout ?? ""}${e.stderr ?? ""}`;
-      const line = out.split("\n").reverse().find((l) => /error|assert|expected/i.test(l)) ?? "failed";
-      record(label, false, line.trim().slice(0, 120));
+      const inner =
+        out.match(/"message"\s*:\s*"([^"]+)"/)?.[1] ??
+        out.match(/ASSERTION FAILED: (.+)/)?.[1] ??
+        out.split("\n").reverse().find((l) => /error|assert|expected/i.test(l)) ??
+        "failed";
+      record(label, false, inner.trim().slice(0, 140));
     }
   }
 }
@@ -178,7 +202,7 @@ await checkRelay(env);
 
 if (!QUICK) {
   console.log("\nscenarios:");
-  runScenarios();
+  await runScenarios(new Wallet(env.VITE_HEGOTA_PRIVATE_KEY ?? process.env.HEGOTA_PRIVATE_KEY).address);
 } else {
   console.log("\nscenarios: skipped (--quick)");
 }
