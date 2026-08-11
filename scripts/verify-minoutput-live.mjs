@@ -42,11 +42,15 @@ const provider = new JsonRpcProvider(RPC_URL);
 const relay = new Wallet(RELAY_KEY, provider);
 const abiCoder = AbiCoder.defaultAbiCoder();
 
-const swapIface = new Interface([
-  "function swap(address from, uint256 amountIn, address recipient) returns (uint256 amountOut)",
-  "function setRate(uint256 newRateNumerator) external",
-  "function rateNumerator() view returns (uint256)",
-]);
+// Read MockSwap's ABI from the compiled artifact rather than restating it here. The
+// hand-written copy silently drifted when MockSwap moved to per-recipient rates:
+// `rateNumerator()` and `setRate(uint256)` became `rateNumerator(address)` and
+// `setRate(address,uint256)`, so every call hit a selector the deployed contract does not
+// have and came back as a bare revert. The frontend never broke because it already reads
+// this artifact (frontend/src/contracts/abis.ts).
+const swapIface = new Interface(
+  JSON.parse(readFileSync(new URL("../artifacts/contracts/hegota/MockSwap.sol/MockSwap.json", import.meta.url), "utf8")).abi,
+);
 const assertionIface = new Interface([
   "function assertMinOutput(address token, address recipient, tuple(uint8 constraintType, bytes referenceData) outputConstraint) view",
 ]);
@@ -54,8 +58,8 @@ const assertionIface = new Interface([
 const ConstraintType = { EQ: 0, GTE: 1, LTE: 2, IN: 3 };
 const RATE_DENOMINATOR = 10n ** 18n; // mirrors MockSwap.sol's constant
 
-async function readRate() {
-  const data = swapIface.encodeFunctionData("rateNumerator", []);
+async function readRate(recipient) {
+  const data = swapIface.encodeFunctionData("rateNumerator", [recipient]);
   const result = await provider.call({ to: MOCK_SWAP, data });
   return swapIface.decodeFunctionResult("rateNumerator", result)[0];
 }
@@ -65,7 +69,7 @@ async function readRate() {
 // function and trusting its return value (most real swap functions don't return anything
 // trustworthy to simulate off of anyway).
 async function quoteSwap(amountIn) {
-  const rate = await readRate();
+  const rate = await readRate(relay.address);
   return (amountIn * rate) / RATE_DENOMINATOR;
 }
 
@@ -87,7 +91,7 @@ async function runScenario(label, amountIn, sandwich) {
   // internally by those convenience methods) chokes trying to parse them as legacy/EIP-1559
   // shaped transactions.
   if (sandwich) {
-    const rateBefore = await readRate();
+    const rateBefore = await readRate(relay.address);
     const sandwichedRate = rateBefore / 2n;
 
     // "latest", not "pending" -- see hegotaMinOutput.ts's sandwichRate for why.
@@ -102,15 +106,26 @@ async function runScenario(label, amountIn, sandwich) {
       chainId: CHAIN_ID,
       nonce: parseInt(setRateNonce, 16),
       to: MOCK_SWAP,
-      data: swapIface.encodeFunctionData("setRate", [sandwichedRate]),
-      gasLimit: 60_000n,
+      data: swapIface.encodeFunctionData("setRate", [relay.address, sandwichedRate]),
+      // A cold write to _rateOverride[recipient] measures ~124,899 gas on Hegotá under
+      // EIP-8037 state-gas repricing. 60_000 silently ran out of gas, so the rate never
+      // moved, no sandwich happened, and the assertion correctly did not fire -- which
+      // read as "the demo is broken". Matches hegotaMinOutput.ts's sandwichRate.
+      gasLimit: 200_000n,
       maxPriorityFeePerGas: 1_000n,
       maxFeePerGas: setRateBaseFee * 4n + 1_000n,
     });
     const setRateHash = await provider.send("eth_sendRawTransaction", [setRateTx]);
     for (let i = 0; i < 20; i++) {
       const receipt = await provider.send("eth_getTransactionReceipt", [setRateHash]);
-      if (receipt) break;
+      // Check the status: a reverted setRate used to look like a confirmed one here, so
+      // the run reported a sandwich it had not actually performed.
+      if (receipt) {
+        if (receipt.status !== "0x1") {
+          throw new Error(`setRate ${setRateHash} reverted (status ${receipt.status})`);
+        }
+        break;
+      }
       await new Promise((r) => setTimeout(r, 2000));
     }
     console.log(`sandwiched: rate moved from ${rateBefore} to ${sandwichedRate}`);
@@ -139,7 +154,9 @@ async function runScenario(label, amountIn, sandwich) {
       chainId: CHAIN_ID, nonceKeys: [0], nonceSeq, sender,
       frames: [
         new Frame(FrameMode.VERIFY, 0x03, sender, 80_000, 0, new Uint8Array(0)),
-        new Frame(FrameMode.DEFAULT, 0, MOCK_SWAP, 150_000, 0, swapData),
+        // ~198k measured on Hegotá under EIP-8037 state-gas repricing; 150_000 halted
+        // this frame out-of-gas. Mirrors hegotaMinOutput.ts's defaultFrame limit.
+        new Frame(FrameMode.DEFAULT, 0, MOCK_SWAP, 300_000, 0, swapData),
         new Frame(FrameMode.POST_TX, 0, MIN_OUTPUT_ASSERTION, 200_000, 0, assertionData),
       ],
       signatures: [sig], maxPriorityFee, maxFee,
