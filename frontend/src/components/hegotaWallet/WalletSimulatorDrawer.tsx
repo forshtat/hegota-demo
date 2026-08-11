@@ -6,6 +6,7 @@ import { tourStops } from "../../tourStops.js";
 import type { PostTxRunResult } from "../../hegotaWallet.js";
 import WalletSimulatorPanel from "./WalletSimulatorPanel.js";
 import PrivateSwapAccountPicker from "./PrivateSwapAccountPicker.js";
+import ProvisioningPanel from "./ProvisioningPanel.js";
 
 export const WALLET_SIMULATOR_DRAWER_WIDTH = 380;
 
@@ -38,6 +39,7 @@ export default function WalletSimulatorDrawer() {
       <Box sx={{ p: 2 }}>
         {mode === "scenario" && <WalletSimulatorPanel scenario={scenario} onDone={handleDone} />}
         {mode === "accountPicker" && <PrivateSwapAccountPicker />}
+        {mode === "provisioning" && <ProvisioningPanel />}
       </Box>
     </Drawer>
   );

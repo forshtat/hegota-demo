@@ -179,7 +179,11 @@ export default function AccountSetup() {
                   disabled={isProvisioning}
                   onClick={provision}
                 >
-                  {isProvisioning ? (isDevAutoWallet ? "Claiming & deploying..." : "Confirm in wallet...") : "Set up my account"}
+                  {isProvisioning
+                    ? isDevAutoWallet
+                      ? "Check the wallet simulator →"
+                      : "Confirm in wallet..."
+                    : "Set up my account"}
                 </Button>
                 {provisionError && <Alert severity="error">{provisionError}</Alert>}
               </Stack>
@@ -223,7 +227,7 @@ export default function AccountSetup() {
                   disabled={!isDeployed || isFunding}
                   onClick={fund}
                 >
-                  {isFunding ? "Confirm in wallet..." : "Fund & approve"}
+                  {isFunding ? (isDevAutoWallet ? "Check the wallet simulator →" : "Confirm in wallet...") : "Fund & approve"}
                 </Button>
                 {fundError && <Alert severity="error">{fundError}</Alert>}
               </Stack>
@@ -296,7 +300,11 @@ export default function AccountSetup() {
                   disabled={isSafeProvisioning}
                   onClick={provisionSafe}
                 >
-                  {isSafeProvisioning ? "Confirm in wallet..." : "Set up my Safe"}
+                  {isSafeProvisioning
+                    ? isDevAutoWallet
+                      ? "Check the wallet simulator →"
+                      : "Confirm in wallet..."
+                    : "Set up my Safe"}
                 </Button>
                 {safeProvisionError && <Alert severity="error">{safeProvisionError}</Alert>}
               </Stack>

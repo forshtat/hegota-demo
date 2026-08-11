@@ -31,9 +31,9 @@ import {
   type JsonRpcSigner,
 } from "ethers";
 import { SafeSingletonABI, SafeProxyFactoryABI, SafeProxyCreationCode } from "./contracts/abis.js";
-import { connectRelayWallet, lowFeeOverrides, submitFrameTx, type FrameTxPlan } from "./hegotaWallet.js";
+import { connectRelayWallet, lowFeeOverrides, type FrameTxPlan } from "./hegotaWallet.js";
 import { Frame, FrameMode } from "./frametx.js";
-import { autoWalletSigner, fetchSelfVerifyNonce } from "./frameSigning.js";
+import { fetchSelfVerifyNonce } from "./frameSigning.js";
 
 export const HEGOTA_SAFE_SINGLETON = import.meta.env.VITE_HEGOTA_SAFE_SINGLETON ?? "";
 export const HEGOTA_SAFE_PROXY_FACTORY = import.meta.env.VITE_HEGOTA_SAFE_PROXY_FACTORY ?? "";
@@ -92,25 +92,14 @@ export async function isSafeDeployed(provider: BrowserProvider, safeAddress: str
   return code !== "0x";
 }
 
-/** Provisions a 1-of-1 Safe owned solely by `owner`.
- *
- *  selfPay = false (real wallets): sponsored -- the relay key deploys the Safe, `owner`
- *  never needs to hold Hegotá ETH. The connected wallet still signs a plain personal_sign
- *  confirmation first -- decorative only, not checked on-chain, purely so the user sees and
- *  feels a wallet prompt for the action they took.
- *
- *  selfPay = true (Demo Wallet): a genuine EIP-8141 bare `self_verify` frame transaction
- *  (no deploy frame -- unlike ERC-7579 provisioning, `sender` here is `owner`'s own EOA, not
- *  the not-yet-deployed Safe: MinimalSafeStub deliberately isn't given a VERIFY-frame self-
- *  approval entry point, since doing so would permanently diverge it from the real, unmodified
- *  Safe singleton it's meant to be byte-for-byte swappable for later). Still relay-free -- the
- *  EOA pays from Hegotá ETH claimed via the sidebar's Faucet button -- just not "the Safe pays
- *  for itself" the way the ERC-7579 account does. */
+/** Sponsored Safe provisioning (real wallets): the relay key deploys a 1-of-1 Safe owned
+ *  solely by `owner`, who never needs to hold Hegotá ETH. The connected wallet still signs a
+ *  plain personal_sign confirmation first -- decorative only, not checked on-chain, purely so
+ *  the user sees and feels a wallet prompt for the action they took. */
 export async function provisionSafe(
   provider: BrowserProvider,
   signer: JsonRpcSigner,
   owner: string,
-  selfPay: boolean,
 ): Promise<{ address: string; txHash: string }> {
   const setupData = buildSetupData(owner);
   const saltNonce = ownerSaltNonce(owner);
@@ -120,25 +109,6 @@ export async function provisionSafe(
     saltNonce,
   ]);
 
-  if (selfPay) {
-    const nonceSeq = await fetchSelfVerifyNonce(provider, owner);
-    const plan: FrameTxPlan = {
-      sender: owner,
-      nonceKeys: [0],
-      nonceSeq,
-      frames: [
-        new Frame(FrameMode.VERIFY, 0x03, owner, 80_000, 0, new Uint8Array(0)),
-        new Frame(FrameMode.DEFAULT, 0, HEGOTA_SAFE_PROXY_FACTORY, 500_000, 0, getBytes(data)),
-      ],
-    };
-    const result = await submitFrameTx(provider, plan, autoWalletSigner(owner));
-    if (result.outcome !== "success") {
-      throw new Error(`Safe deployment ${result.outcome} (tx ${result.txHash})`);
-    }
-    const address = await predictSafeAddress(provider, owner);
-    return { address, txHash: result.txHash };
-  }
-
   await signer.signMessage(`Deploy my personal Hegotá demo Safe\nowner: ${owner}`);
   const relay = connectRelayWallet(provider);
   const tx = await relay.sendTransaction({ to: HEGOTA_SAFE_PROXY_FACTORY, data, ...(await lowFeeOverrides(provider)) });
@@ -146,4 +116,46 @@ export async function provisionSafe(
 
   const address = await predictSafeAddress(provider, owner);
   return { address, txHash: tx.hash };
+}
+
+/** Self-funded Safe provisioning (Demo Wallet): prepares the FrameTxPlan for a genuine
+ *  EIP-8141 bare `self_verify` frame transaction (no deploy frame -- unlike ERC-7579
+ *  provisioning, `sender` here is `owner`'s own EOA, not the not-yet-deployed Safe:
+ *  MinimalSafeStub deliberately isn't given a VERIFY-frame self-approval entry point, since
+ *  doing so would permanently diverge it from the real, unmodified Safe singleton it's meant
+ *  to be byte-for-byte swappable for later). Still relay-free -- the EOA pays from Hegotá ETH
+ *  already claimed via the sidebar's Faucet button -- just not "the Safe pays for itself" the
+ *  way the ERC-7579 account does. Submission itself is left to the caller
+ *  (ProvisioningPanel.tsx). */
+export async function prepareProvisionSafe(
+  provider: BrowserProvider,
+  owner: string,
+  reportProgress: (label: string) => Promise<void>,
+): Promise<{ plan: FrameTxPlan; signerAddress: string }> {
+  await reportProgress("Building the deployment transaction");
+  const setupData = buildSetupData(owner);
+  const saltNonce = ownerSaltNonce(owner);
+  const data = proxyFactoryIface.encodeFunctionData("createProxyWithNonce", [
+    HEGOTA_SAFE_SINGLETON,
+    setupData,
+    saltNonce,
+  ]);
+  const nonceSeq = await fetchSelfVerifyNonce(provider, owner);
+  const plan: FrameTxPlan = {
+    sender: owner,
+    nonceKeys: [0],
+    nonceSeq,
+    frames: [
+      new Frame(FrameMode.VERIFY, 0x03, owner, 80_000, 0, new Uint8Array(0)),
+      // Live-measured real usage: ~798k -- Safe.setup()'s SSTOREs are far more expensive
+      // than 500k accounts for under this devnet's Amsterdam-era state-gas repricing (see
+      // MinimalERC7579Account.sol's own doc comment on the same repricing hitting code
+      // deposits). This frame is outside the validation prefix (bare self_verify, not
+      // deploy+self_verify), so it isn't budget-constrained by MAX_VERIFY_GAS at all --
+      // only by the overall per-tx gas cap (40M) and block gas limit (200M), both far above
+      // this.
+      new Frame(FrameMode.DEFAULT, 0, HEGOTA_SAFE_PROXY_FACTORY, 1_200_000, 0, getBytes(data)),
+    ],
+  };
+  return { plan, signerAddress: owner };
 }

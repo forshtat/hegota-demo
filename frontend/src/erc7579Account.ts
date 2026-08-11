@@ -13,9 +13,9 @@ import {
   MinimalERC7579AccountABI,
   PostTxExecutorABI,
 } from "./contracts/abis.js";
-import { connectRelayWallet, lowFeeOverrides, submitFrameTx, type FrameTxPlan } from "./hegotaWallet.js";
+import { connectRelayWallet, lowFeeOverrides, type FrameTxPlan } from "./hegotaWallet.js";
 import { Frame, FrameMode } from "./frametx.js";
-import { autoWalletSigner, fetchSelfVerifyNonce } from "./frameSigning.js";
+import { fetchSelfVerifyNonce, registerKnownInterface } from "./frameSigning.js";
 import { claimHegotaFaucet, waitForNonZeroBalance } from "./hegotaFaucet.js";
 
 // Routes an EIP-8141 VERIFY(self) frame to MinimalERC7579Account's fallback rather than its
@@ -44,6 +44,10 @@ export function isErc7579Configured(): boolean {
 const factoryIface = new Interface(MinimalERC7579AccountProxyFactoryABI);
 const accountIface = new Interface(MinimalERC7579AccountABI);
 const executorIface = new Interface(PostTxExecutorABI);
+// So the wallet-simulator drawer's device screens (ProvisioningPanel.tsx) can decode
+// createAccount/completeSetup calls by name+args instead of showing raw hex.
+registerKnownInterface(factoryIface);
+registerKnownInterface(accountIface);
 
 export async function predictAccountAddress(provider: BrowserProvider, owner: string): Promise<string> {
   const data = factoryIface.encodeFunctionData("getAddress", [owner]);
@@ -56,66 +60,20 @@ export async function isAccountDeployed(provider: BrowserProvider, account: stri
   return code !== "0x";
 }
 
-/** Provisions the account for `owner`. Two on-chain steps either way -- deploy the proxy,
- *  then completeSetup() to install the validator/executor into its own storage (see
- *  MinimalERC7579Account.sol's own doc comment for why installation can't happen inside the
- *  deploy step itself: an external onInstall call plus an SSTORE is too expensive to fit
- *  EIP-8141's MAX_VERIFY_GAS budget alongside the deploy frame, for the selfPay path).
- *
- *  selfPay = false (real wallets): sponsored -- the relay key deploys the proxy and calls
- *  completeSetup(), `owner` never needs to hold Hegotá ETH. The connected wallet still signs
- *  a plain personal_sign confirmation first -- purely so the user sees and feels a wallet
- *  prompt for the action they just took; it isn't checked on-chain, the same
- *  decorative-signature pattern as demoSmartAccountAction.ts.
- *
- *  selfPay = true (Demo Wallet): a single genuine EIP-8141 `deploy+self_verify` frame
- *  transaction whose `sender` is the account's own predicted CREATE2 address, not `owner`'s
- *  EOA -- the account pays for its own deployment. Frame 0 (DEFAULT, in the validation
- *  prefix, tightly gas-budgeted) calls the factory, which CREATE2s the tiny proxy at exactly
- *  that predicted address. Frame 1 (VERIFY, self, also in the prefix) then runs the
- *  just-deployed proxy's fallback (delegated to the shared implementation, see
- *  SelfVerifyLib.sol), which checks the outer envelope signature's resolved signer against
- *  the proxy's own embedded owner and approves execution+payment if it matches. Frame 2
- *  (DEFAULT, outside the prefix, no gas cap) then calls completeSetup(), now unconstrained.
- *  The envelope is still signed by `owner`'s own EOA key (autoWalletSigner) -- that's exactly
- *  the signature the fallback checks -- so the account can be `sender` even though it holds
- *  no private key of its own. The faucet funds the predicted address directly, before it has
- *  any code, so it can pay its own gas for both the deploy and the completeSetup call. */
+/** Sponsored provisioning (real wallets): the relay key deploys the proxy and calls
+ *  completeSetup(), `owner` never needs to hold Hegotá ETH. Two plain transactions -- deploy,
+ *  then completeSetup() to install the validator/executor into the proxy's own storage (see
+ *  MinimalERC7579Account.sol's own doc comment for why that's a separate step). The connected
+ *  wallet still signs a plain personal_sign confirmation first -- purely so the user sees and
+ *  feels a wallet prompt for the action they just took; it isn't checked on-chain, the same
+ *  decorative-signature pattern as demoSmartAccountAction.ts. */
 export async function provisionAccount(
   provider: BrowserProvider,
   signer: JsonRpcSigner,
   owner: string,
-  selfPay: boolean,
 ): Promise<{ address: string; txHash: string }> {
   const createData = factoryIface.encodeFunctionData("createAccount", [owner]);
   const completeSetupData = accountIface.encodeFunctionData("completeSetup", []);
-
-  if (selfPay) {
-    const accountAddress = await predictAccountAddress(provider, owner);
-    await claimHegotaFaucet(accountAddress);
-    await waitForNonZeroBalance(provider, accountAddress);
-
-    const nonceSeq = await fetchSelfVerifyNonce(provider, accountAddress);
-    const plan: FrameTxPlan = {
-      sender: accountAddress,
-      nonceKeys: [0],
-      nonceSeq,
-      frames: [
-        // Live-measured real usage: deploy ~117k, verify ~6.7k, completeSetup ~344k -- these
-        // limits keep a comfortable margin (prefix total 220k, well under the devnet's
-        // MAX_VERIFY_GAS=500k; completeSetup is outside the prefix so isn't budget-constrained
-        // at all, but still gets a real limit rather than an arbitrarily huge one).
-        new Frame(FrameMode.DEFAULT, 0, HEGOTA_ERC7579_FACTORY, 200_000, 0, getBytes(createData)),
-        new Frame(FrameMode.VERIFY, 0x03, accountAddress, 20_000, 0, SELF_VERIFY_SENTINEL),
-        new Frame(FrameMode.DEFAULT, 0, accountAddress, 500_000, 0, getBytes(completeSetupData)),
-      ],
-    };
-    const result = await submitFrameTx(provider, plan, autoWalletSigner(owner));
-    if (result.outcome !== "success") {
-      throw new Error(`Account deployment ${result.outcome} (tx ${result.txHash})`);
-    }
-    return { address: accountAddress, txHash: result.txHash };
-  }
 
   await signer.signMessage(`Deploy my Hegotá demo smart account\nowner: ${owner}`);
   const relay = connectRelayWallet(provider);
@@ -126,6 +84,55 @@ export async function provisionAccount(
   const setupTx = await relay.sendTransaction({ to: address, data: completeSetupData, ...fees });
   await setupTx.wait();
   return { address, txHash: setupTx.hash };
+}
+
+/** Self-funded provisioning (Demo Wallet): prepares the FrameTxPlan for a single genuine
+ *  EIP-8141 `deploy+self_verify` frame transaction whose `sender` is the account's own
+ *  predicted CREATE2 address, not `owner`'s EOA -- the account pays for its own deployment.
+ *  Submission itself is left to the caller (ProvisioningPanel.tsx), which shows this plan on
+ *  its device screens and only signs/sends it once the user clicks Submit there.
+ *
+ *  Frame 0 (DEFAULT, in the validation prefix, tightly gas-budgeted) calls the factory, which
+ *  CREATE2s the tiny proxy at exactly the predicted address. Frame 1 (VERIFY, self, also in
+ *  the prefix) then runs the just-deployed proxy's fallback (delegated to the shared
+ *  implementation, see SelfVerifyLib.sol), which checks the outer envelope signature's
+ *  resolved signer against the proxy's own embedded owner and approves execution+payment if
+ *  it matches. Frame 2 (DEFAULT, outside the prefix, no gas cap) then calls completeSetup(),
+ *  now unconstrained. The envelope is signed by `owner`'s own EOA key -- that's exactly the
+ *  signature the fallback checks -- so the account can be `sender` even though it holds no
+ *  private key of its own. The faucet funds the predicted address directly, before it has any
+ *  code, so it can pay its own gas for both the deploy and the completeSetup call. */
+export async function prepareProvisionAccount(
+  provider: BrowserProvider,
+  owner: string,
+  reportProgress: (label: string) => Promise<void>,
+): Promise<{ plan: FrameTxPlan; signerAddress: string }> {
+  const accountAddress = await predictAccountAddress(provider, owner);
+
+  await reportProgress("Claiming Hegotá ETH from the public faucet");
+  await claimHegotaFaucet(accountAddress);
+  await reportProgress("Waiting for the claim to land on-chain");
+  await waitForNonZeroBalance(provider, accountAddress);
+  await reportProgress("Building the deployment transaction");
+
+  const createData = factoryIface.encodeFunctionData("createAccount", [owner]);
+  const completeSetupData = accountIface.encodeFunctionData("completeSetup", []);
+  const nonceSeq = await fetchSelfVerifyNonce(provider, accountAddress);
+  const plan: FrameTxPlan = {
+    sender: accountAddress,
+    nonceKeys: [0],
+    nonceSeq,
+    frames: [
+      // Live-measured real usage: deploy ~117k, verify ~6.7k, completeSetup ~344k -- these
+      // limits keep a comfortable margin (prefix total 220k, well under the devnet's
+      // MAX_VERIFY_GAS=500k; completeSetup is outside the prefix so isn't budget-constrained
+      // at all, but still gets a real limit rather than an arbitrarily huge one).
+      new Frame(FrameMode.DEFAULT, 0, HEGOTA_ERC7579_FACTORY, 200_000, 0, getBytes(createData)),
+      new Frame(FrameMode.VERIFY, 0x03, accountAddress, 20_000, 0, SELF_VERIFY_SENTINEL),
+      new Frame(FrameMode.DEFAULT, 0, accountAddress, 500_000, 0, getBytes(completeSetupData)),
+    ],
+  };
+  return { plan, signerAddress: owner };
 }
 
 /** The account's current nonce at PostTxExecutor, needed to build the EIP-712 value
