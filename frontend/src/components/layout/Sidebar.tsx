@@ -12,7 +12,9 @@ import {
   Button,
   Stack,
   CircularProgress,
+  Chip,
 } from "@mui/material";
+import { formatEther } from "ethers";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import WaterDropIcon from "@mui/icons-material/WaterDrop";
 import HomeIcon from "@mui/icons-material/Home";
@@ -27,13 +29,17 @@ import AutorenewIcon from "@mui/icons-material/Autorenew";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import DrawIcon from "@mui/icons-material/Draw";
 import LockIcon from "@mui/icons-material/Lock";
+import ShieldIcon from "@mui/icons-material/Shield";
 import type { ReactNode } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useTour } from "../../contexts/TourContext.js";
 import { useWallet } from "../../contexts/WalletContext.js";
+import { useErc7579Account } from "../../hooks/useErc7579Account.js";
+import { useSafeAccount } from "../../hooks/useSafeAccount.js";
+import { useAdvisoryBalance } from "../../hooks/useAdvisoryBalance.js";
 import { appKit } from "../../wallet.js";
 import { HEGOTA_CHAIN_ID } from "../../hegotaWallet.js";
-import { claimHegotaFaucet } from "../../hegotaAccountFunding.js";
+import { claimHegotaFaucet } from "../../hegotaFaucet.js";
 import { formatWalletError } from "../../errorFormat.js";
 import { useTxToast } from "../../toast.js";
 
@@ -74,6 +80,53 @@ function SectionLabel({ children }: { children: ReactNode }) {
   );
 }
 
+/** Compact address/deployed-flag/balance row for the sidebar's account-status block, shown
+ *  next to the appkit-button so a connected user can see their ERC-7579 account and Safe
+ *  state without visiting /account-setup. Only rendered once the address is known (i.e. the
+ *  Hegotá ERC-7579/Safe infra is configured and the wallet is connected). */
+function AccountStatusRow({
+  label,
+  address,
+  deployed,
+  balance,
+  icon,
+}: {
+  label: string;
+  address: string | null;
+  deployed: boolean;
+  balance: bigint | null;
+  icon: ReactNode;
+}) {
+  if (!address) return null;
+  return (
+    <Box>
+      <Stack direction="row" spacing={0.5} alignItems="center">
+        {icon}
+        <Typography variant="caption" sx={{ fontWeight: 600 }}>
+          {label}
+        </Typography>
+        <Chip
+          label={deployed ? "deployed" : "not deployed"}
+          size="small"
+          color={deployed ? "success" : "default"}
+          sx={{ height: 16, fontSize: 9, "& .MuiChip-label": { px: 0.6 } }}
+        />
+      </Stack>
+      <Typography
+        variant="caption"
+        color="text.secondary"
+        component="div"
+        sx={{ wordBreak: "break-all", fontFamily: "monospace", fontSize: 10, lineHeight: 1.4 }}
+      >
+        {address}
+      </Typography>
+      <Typography variant="caption" color="text.secondary">
+        {balance === null ? "balance —" : `${formatEther(balance)} ETH`}
+      </Typography>
+    </Box>
+  );
+}
+
 function NavIcon({ icon, done }: { icon: ReactNode; done: boolean }) {
   return (
     <Box
@@ -99,11 +152,16 @@ export default function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
   const { completedPaths, resetProgress } = useTour();
-  const { isConnected, isHegota, address } = useWallet();
+  const { isConnected, isHegota, address, provider } = useWallet();
   const { notifyMined, notifyError } = useTxToast();
   const [faucetBusy, setFaucetBusy] = useState(false);
 
   const showFaucet = isConnected && isHegota;
+  const showAccountStatus = isConnected && isHegota;
+  const erc7579 = useErc7579Account();
+  const safeAccount = useSafeAccount();
+  const accountBalance = useAdvisoryBalance(provider, showAccountStatus, erc7579.accountAddress);
+  const safeBalance = useAdvisoryBalance(provider, showAccountStatus, safeAccount.safeAddress);
 
   const nav = (path: string) => () => navigate(path);
   const sel = (path: string) => location.pathname === path;
@@ -235,6 +293,24 @@ export default function Sidebar() {
             >
               {faucetBusy ? "Claiming…" : `Faucet +${FAUCET_DISPLAY_AMOUNT}`}
             </Button>
+          )}
+          {showAccountStatus && (erc7579.accountAddress || safeAccount.safeAddress) && (
+            <Stack spacing={1} sx={{ pt: 0.5 }}>
+              <AccountStatusRow
+                label="ERC-7579 account"
+                address={erc7579.accountAddress}
+                deployed={erc7579.isDeployed}
+                balance={accountBalance}
+                icon={<AccountBalanceWalletIcon sx={{ fontSize: 13 }} />}
+              />
+              <AccountStatusRow
+                label="Safe"
+                address={safeAccount.safeAddress}
+                deployed={safeAccount.isDeployed}
+                balance={safeBalance}
+                icon={<ShieldIcon sx={{ fontSize: 13 }} />}
+              />
+            </Stack>
           )}
           <appkit-button />
         </Stack>

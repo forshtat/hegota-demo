@@ -10,6 +10,7 @@ import {
   Stack,
   Typography,
 } from "@mui/material";
+import { formatEther } from "ethers";
 import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import AddIcon from "@mui/icons-material/Add";
@@ -19,12 +20,13 @@ import { useWallet } from "../contexts/WalletContext.js";
 import { useTour } from "../contexts/TourContext.js";
 import { useErc7579Account } from "../hooks/useErc7579Account.js";
 import { useSafeAccount } from "../hooks/useSafeAccount.js";
+import { useAdvisoryBalance } from "../hooks/useAdvisoryBalance.js";
 import PageContainer from "../components/layout/PageContainer.js";
 import DoraLink from "../components/DoraLink.js";
 
 export default function AccountSetup() {
   const {
-    isConnected, isHegota, chainId,
+    isConnected, isHegota, chainId, provider, address, isDevAutoWallet,
     switchToHegota, isSwitchingNetwork, switchNetworkError,
     addHegotaNetwork, isAddingNetwork, addNetworkError,
   } = useWallet();
@@ -53,6 +55,9 @@ export default function AccountSetup() {
     provision: provisionSafe,
   } = useSafeAccount();
   const { markComplete } = useTour();
+
+  const accountBalance = useAdvisoryBalance(provider, isDevAutoWallet, accountAddress);
+  const eoaBalance = useAdvisoryBalance(provider, isDevAutoWallet, address);
 
   useEffect(() => {
     if ((isDeployed && isFunded) || isSafeDeployed) {
@@ -155,16 +160,26 @@ export default function AccountSetup() {
             ) : (
               <Stack spacing={1.5} alignItems="flex-start">
                 <Typography variant="body2" color="text.secondary">
-                  Not deployed yet. Deployment gas is sponsored — you don't need Hegotá ETH
-                  for this step — but your wallet will ask you to confirm before it deploys.
+                  {isDevAutoWallet
+                    ? "Not deployed yet. Your Demo Wallet account pays for its own deployment: " +
+                      "clicking below claims Hegotá ETH from the faucet straight to its " +
+                      "(not-yet-deployed) address, then submits a real EIP-8141 frame " +
+                      "transaction it signs and pays for itself, with no relay involved."
+                    : "Not deployed yet. Deployment gas is sponsored — you don't need Hegotá ETH " +
+                      "for this step — but your wallet will ask you to confirm before it deploys."}
                 </Typography>
+                {isDevAutoWallet && accountAddress && (
+                  <Typography variant="caption" color="text.secondary">
+                    Balance: {accountBalance === null ? "—" : `${formatEther(accountBalance)} ETH`}
+                  </Typography>
+                )}
                 <Button
                   variant="outlined"
                   startIcon={isProvisioning ? <CircularProgress size={16} /> : <AccountBalanceWalletIcon />}
                   disabled={isProvisioning}
                   onClick={provision}
                 >
-                  {isProvisioning ? "Confirm in wallet..." : "Set up my account"}
+                  {isProvisioning ? (isDevAutoWallet ? "Claiming & deploying..." : "Confirm in wallet...") : "Set up my account"}
                 </Button>
                 {provisionError && <Alert severity="error">{provisionError}</Alert>}
               </Stack>
@@ -181,20 +196,26 @@ export default function AccountSetup() {
               </Typography>
             </Stack>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Sends your account a fixed amount of the swap's input token, then approves
-              MockSwap to spend it — both sponsored by the relay key.
+              {isDevAutoWallet
+                ? "Your account mints its own input token, then approves MockSwap to spend " +
+                  "it — one real frame transaction, paid from the account's own balance " +
+                  "claimed in Step 1."
+                : "Sends your account a fixed amount of the swap's input token, then approves " +
+                  "MockSwap to spend it — both sponsored by the relay key."}
             </Typography>
             {isFunded ? (
               <Box>
                 <Chip label="Funded & approved" color="success" size="small" />
                 {fundTxHash && <DoraLink txHash={fundTxHash} />}
-                {approveTxHash && <DoraLink txHash={approveTxHash} />}
+                {!isDevAutoWallet && approveTxHash && <DoraLink txHash={approveTxHash} />}
               </Box>
             ) : (
               <Stack spacing={1.5} alignItems="flex-start">
                 <Typography variant="body2" color="text.secondary">
-                  Two wallet confirmations: one to send the funds, one to approve MockSwap —
-                  gas for both is sponsored.
+                  {isDevAutoWallet
+                    ? "One frame transaction, signed and paid for by the account itself — no relay involved."
+                    : "Two wallet confirmations: one to send the funds, one to approve MockSwap — " +
+                      "gas for both is sponsored."}
                 </Typography>
                 <Button
                   variant="outlined"
@@ -252,9 +273,23 @@ export default function AccountSetup() {
             ) : (
               <Stack spacing={1.5} alignItems="flex-start">
                 <Typography variant="body2" color="text.secondary">
-                  Not deployed yet. Deployment gas is sponsored — you don't need Hegotá ETH
-                  for this step — but your wallet will ask you to confirm before it deploys.
+                  {isDevAutoWallet
+                    ? "Not deployed yet. Paid from your Demo Wallet's own Hegotá ETH via a real " +
+                      "frame transaction it signs and pays for itself — claim some from the " +
+                      "Faucet button in the sidebar first if you haven't."
+                    : "Not deployed yet. Deployment gas is sponsored — you don't need Hegotá ETH " +
+                      "for this step — but your wallet will ask you to confirm before it deploys."}
                 </Typography>
+                {isDevAutoWallet && address && (
+                  <Typography variant="caption" color="text.secondary">
+                    Your balance: {eoaBalance === null ? "—" : `${formatEther(eoaBalance)} ETH`}
+                  </Typography>
+                )}
+                {isDevAutoWallet && eoaBalance === 0n && (
+                  <Alert severity="warning" sx={{ width: "100%" }}>
+                    No Hegotá ETH yet — claim some from the Faucet button in the sidebar first.
+                  </Alert>
+                )}
                 <Button
                   variant="outlined"
                   startIcon={isSafeProvisioning ? <CircularProgress size={16} /> : <ShieldIcon />}

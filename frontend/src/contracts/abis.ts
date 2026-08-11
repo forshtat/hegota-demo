@@ -10,7 +10,8 @@ import TestSubjectJson from "@artifacts/shared/TestSubject.sol/TestSubject.json"
 import RequiredEventAssertionJson from "@artifacts/hegota/RequiredEventAssertion.sol/RequiredEventAssertion.json";
 import OwnerEcdsaValidatorJson from "@artifacts/erc7579/OwnerEcdsaValidator.sol/OwnerEcdsaValidator.json";
 import PostTxExecutorJson from "@artifacts/erc7579/PostTxExecutor.sol/PostTxExecutor.json";
-import MinimalERC7579AccountFactoryJson from "@artifacts/erc7579/MinimalERC7579AccountFactory.sol/MinimalERC7579AccountFactory.json";
+import MinimalERC7579AccountProxyFactoryJson from "@artifacts/erc7579/MinimalERC7579AccountProxyFactory.sol/MinimalERC7579AccountProxyFactory.json";
+import MinimalERC7579AccountJson from "@artifacts/erc7579/MinimalERC7579Account.sol/MinimalERC7579Account.json";
 import MinOutputAssertionJson from "@artifacts/hegota/MinOutputAssertion.sol/MinOutputAssertion.json";
 import MockSwapJson from "@artifacts/hegota/MockSwap.sol/MockSwap.json";
 import ApprovalCapAssertionJson from "@artifacts/hegota/ApprovalCapAssertion.sol/ApprovalCapAssertion.json";
@@ -65,7 +66,8 @@ export const RequiredEventAssertionABI = RequiredEventAssertionJson.abi;
 
 export const OwnerEcdsaValidatorABI = OwnerEcdsaValidatorJson.abi;
 export const PostTxExecutorABI = PostTxExecutorJson.abi;
-export const MinimalERC7579AccountFactoryABI = MinimalERC7579AccountFactoryJson.abi;
+export const MinimalERC7579AccountProxyFactoryABI = MinimalERC7579AccountProxyFactoryJson.abi;
+export const MinimalERC7579AccountABI = MinimalERC7579AccountJson.abi;
 
 export const MinOutputAssertionABI = MinOutputAssertionJson.abi;
 export const MockSwapABI = MockSwapJson.abi;

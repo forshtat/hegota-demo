@@ -27,7 +27,7 @@ export interface UseSafeAccountResult {
 }
 
 export function useSafeAccount(): UseSafeAccountResult {
-  const { isConnected, isHegota, provider, signer, address } = useWallet();
+  const { isConnected, isHegota, provider, signer, address, isDevAutoWallet } = useWallet();
 
   const [safeAddress, setSafeAddress] = useState<string | null>(null);
   const [isDeployed, setIsDeployed] = useState(false);
@@ -70,7 +70,7 @@ export function useSafeAccount(): UseSafeAccountResult {
     setIsProvisioning(true);
     setProvisionError(null);
     try {
-      const { address: deployed, txHash } = await provisionSafe(provider, signer, address);
+      const { address: deployed, txHash } = await provisionSafe(provider, signer, address, isDevAutoWallet);
       setSafeAddress(deployed);
       setIsDeployed(true);
       setProvisionTxHash(txHash);
@@ -79,7 +79,7 @@ export function useSafeAccount(): UseSafeAccountResult {
     } finally {
       setIsProvisioning(false);
     }
-  }, [provider, signer, address]);
+  }, [provider, signer, address, isDevAutoWallet]);
 
   return {
     configured,

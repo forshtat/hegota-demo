@@ -7,29 +7,96 @@ import {
 } from "./IMinimalValidatorExecutor.sol";
 import { ModeLib, ModeCode, CallType, CALLTYPE_SINGLE } from "@erc7579/lib/ModeLib.sol";
 import { ExecutionLib } from "@erc7579/lib/ExecutionLib.sol";
+import { SelfVerifyLib } from "./SelfVerifyLib.sol";
 
 /// @title MinimalERC7579Account
-/// @notice A self-contained ERC-7579 account: implements the real IERC7579Account
-/// interface (isValidSignature delegates to an installed validator; executeFromExecutor
-/// is gated to installed executors) but with its own lightweight storage instead of
-/// Rhinestone's ModuleManager/SentinelList/HookManager stack. Its validator and executor
-/// are installed once, in the constructor -- there is no runtime installModule support,
-/// which is out of scope for this demo.
+/// @notice A self-contained ERC-7579 account IMPLEMENTATION: implements the real
+/// IERC7579Account interface (isValidSignature delegates to an installed validator;
+/// executeFromExecutor is gated to installed executors) but with its own lightweight
+/// storage instead of Rhinestone's ModuleManager/SentinelList/HookManager stack.
+///
+/// Deployed exactly ONCE, as a shared singleton reached via DELEGATECALL from many tiny
+/// MinimalERC7579AccountProxy instances (one per owner) -- NOT deployed per-account itself.
+/// This split exists purely because of EIP-8141's `deploy+self_verify` validation-prefix gas
+/// budget (`FRAME_TX_MAX_VERIFY_GAS = 100_000`, ethrex's `transaction.rs`): that budget covers
+/// the deploy frame's own gas_limit too (confirmed directly against ethrex's source and by a
+/// live test), so a self-funded account deployment (the account pays for its own CREATE2, not
+/// the owner's EOA) can only ever deploy something proxy-sized (~65 bytes), never this
+/// contract's full runtime. Every function here operates on whichever proxy's storage
+/// delegatecalled in -- `installedValidator`/`installedExecutor`/`selfVerifyDispatcher` are
+/// immutables baked into THIS shared implementation's own bytecode (correct here because
+/// every account in this demo uses the same fixed validator/executor/dispatcher singletons,
+/// not a genuinely per-account value), while `isValidatorInstalled`/`isExecutorInstalled` are
+/// regular storage and therefore correctly per-proxy.
 contract MinimalERC7579Account is IERC7579Account {
     error Unauthorized();
     error UnsupportedCallType();
     error CallFailed();
+    error AlreadySetUp();
 
     mapping(address module => bool) public isValidatorInstalled;
     mapping(address module => bool) public isExecutorInstalled;
 
-    constructor(address validator, bytes memory validatorInitData, address executor, bytes memory executorInitData) {
-        isValidatorInstalled[validator] = true;
-        IMinimalValidator(validator).onInstall(validatorInitData);
+    address public immutable installedValidator;
+    address public immutable installedExecutor;
+    address public immutable selfVerifyDispatcher;
 
-        if (executor != address(0)) {
-            isExecutorInstalled[executor] = true;
-            IMinimalExecutor(executor).onInstall(executorInitData);
+    constructor(address validator, address executor) {
+        installedValidator = validator;
+        installedExecutor = executor;
+        selfVerifyDispatcher = SelfVerifyLib.deploy();
+    }
+
+    /// @notice Installs the fixed validator/executor into the CALLING PROXY's own storage
+    /// (regular storage writes, so this only makes sense invoked via delegatecall from a
+    /// proxy -- calling it directly on the shared implementation is harmless but pointless).
+    /// Deliberately open/permissionless rather than onlySelf: `installedValidator`,
+    /// `installedExecutor`, and each proxy's embedded owner (see _embeddedOwner) are all
+    /// fixed, already-baked-in values, so this function's outcome is fully determined
+    /// regardless of who calls it -- there's nothing for a third-party caller to corrupt.
+    /// Called via a plain (non-frame or post-prefix) transaction, since installing a module
+    /// (an external call plus an SSTORE) is far too expensive to fit in the deploy+self_verify
+    /// frame tx's own MAX_VERIFY_GAS budget alongside the deploy itself.
+    function completeSetup() external {
+        if (isValidatorInstalled[installedValidator]) revert AlreadySetUp();
+        isValidatorInstalled[installedValidator] = true;
+        IMinimalValidator(installedValidator).onInstall(abi.encode(_embeddedOwner()));
+
+        if (installedExecutor != address(0)) {
+            isExecutorInstalled[installedExecutor] = true;
+            IMinimalExecutor(installedExecutor).onInstall("");
+        }
+    }
+
+    /// @notice The owner address MinimalERC7579AccountProxy embeds as its own trailing 20
+    /// immutable bytes (a "clone with immutable args" proxy, not a plain EIP-1167 clone) --
+    /// read via EXTCODECOPY of the CALLER's own code, which under delegatecall is this
+    /// account's own address. Avoids needing any storage write (an installed-validator
+    /// lookup) just to learn the owner during the deploy frame's own tight gas budget.
+    function _embeddedOwner() internal view returns (address owner) {
+        assembly {
+            let size := extcodesize(address())
+            extcodecopy(address(), 0x00, sub(size, 20), 20)
+            owner := shr(96, mload(0x00))
+        }
+    }
+
+    /// @notice Target of an EIP-8141 VERIFY(self) frame (see SelfVerifyLib) -- the frontend
+    /// sends a non-empty sentinel payload so this routes here rather than to `receive()`,
+    /// which stays untouched for plain ETH transfers (e.g. faucet claims, IN_TOKEN mints).
+    /// Checks the proxy's own embedded owner (see _embeddedOwner), not any storage-based
+    /// validator lookup -- this must work even before completeSetup() has ever run, since
+    /// the very first self_verify happens in the same frame tx as the deploy itself.
+    fallback() external payable {
+        address dispatcher = selfVerifyDispatcher;
+        address owner = _embeddedOwner();
+        assembly {
+            mstore(0x00, owner)
+            let ok := delegatecall(gas(), dispatcher, 0x00, 0x20, 0x00, 0x00)
+            returndatacopy(0x00, 0x00, returndatasize())
+            switch ok
+            case 0 { revert(0x00, returndatasize()) }
+            default { return(0x00, returndatasize()) }
         }
     }
 

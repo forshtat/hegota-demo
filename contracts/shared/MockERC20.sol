@@ -44,4 +44,15 @@ contract MockERC20 {
         emit Transfer(from, to, amount);
         return true;
     }
+
+    /// @notice Permissionless mint -- this is a test-fixture token with no real value (see
+    /// MockSwap's own doc comment on being "a shared singleton on a public devnet"), so anyone
+    /// can mint to any address. Lets a self-funded caller (e.g. the Hegotá demo's Demo Wallet
+    /// self-provisioning flow) supply its own IN_TOKEN balance instead of depending on the
+    /// deployer's fixed initial supply.
+    function mint(address to, uint256 amount) external {
+        totalSupply += amount;
+        balanceOf[to] += amount;
+        emit Transfer(address(0), to, amount);
+    }
 }

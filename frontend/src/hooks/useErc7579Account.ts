@@ -31,7 +31,7 @@ export interface UseErc7579AccountResult {
 }
 
 export function useErc7579Account(): UseErc7579AccountResult {
-  const { isConnected, isHegota, provider, signer, address, chainId } = useWallet();
+  const { isConnected, isHegota, provider, signer, address, chainId, isDevAutoWallet } = useWallet();
 
   const [accountAddress, setAccountAddress] = useState<string | null>(null);
   const [isDeployed, setIsDeployed] = useState(false);
@@ -82,7 +82,7 @@ export function useErc7579Account(): UseErc7579AccountResult {
     setIsProvisioning(true);
     setProvisionError(null);
     try {
-      const { address: deployed, txHash } = await provisionAccount(provider, signer, address);
+      const { address: deployed, txHash } = await provisionAccount(provider, signer, address, isDevAutoWallet);
       setAccountAddress(deployed);
       setIsDeployed(true);
       setProvisionTxHash(txHash);
@@ -91,14 +91,14 @@ export function useErc7579Account(): UseErc7579AccountResult {
     } finally {
       setIsProvisioning(false);
     }
-  }, [provider, signer, address]);
+  }, [provider, signer, address, isDevAutoWallet]);
 
   const fund = useCallback(async () => {
     if (!provider || !signer || !address || !accountAddress || chainId === undefined) return;
     setIsFunding(true);
     setFundError(null);
     try {
-      const result = await fundAndApproveForSwap(provider, signer, chainId, accountAddress);
+      const result = await fundAndApproveForSwap(provider, signer, chainId, accountAddress, isDevAutoWallet);
       setIsFunded(true);
       if (result) {
         setFundTxHash(result.fundTxHash);
@@ -109,7 +109,7 @@ export function useErc7579Account(): UseErc7579AccountResult {
     } finally {
       setIsFunding(false);
     }
-  }, [provider, signer, address, accountAddress, chainId]);
+  }, [provider, signer, address, accountAddress, chainId, isDevAutoWallet]);
 
   return {
     configured,

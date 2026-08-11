@@ -95,18 +95,28 @@ async function main() {
   const RequiredEventAssertion  = artifact("hegota/RequiredEventAssertion.sol/RequiredEventAssertion.json");
   const OwnerEcdsaValidator     = artifact("erc7579/OwnerEcdsaValidator.sol/OwnerEcdsaValidator.json");
   const PostTxExecutor          = artifact("erc7579/PostTxExecutor.sol/PostTxExecutor.json");
-  const MinimalERC7579AccountFactory = artifact(
-    "erc7579/MinimalERC7579AccountFactory.sol/MinimalERC7579AccountFactory.json",
+  const MinimalERC7579Account   = artifact("erc7579/MinimalERC7579Account.sol/MinimalERC7579Account.json");
+  const MinimalERC7579AccountProxyFactory = artifact(
+    "erc7579/MinimalERC7579AccountProxyFactory.sol/MinimalERC7579AccountProxyFactory.json",
   );
 
   console.log("\nDeploying Hegotá POST_TX-assertion demo contracts:");
   const testSubject           = await deploy(signer, TestSubject, [], "TestSubject", n(), fees);
   const requiredEventAssertion = await deploy(signer, RequiredEventAssertion, [], "RequiredEventAssertion", n(), fees);
 
+  // MinimalERC7579Account is a shared IMPLEMENTATION (deployed once, delegatecalled by every
+  // owner's own tiny CREATE2 proxy) -- see that contract's own doc comment for why: EIP-8141's
+  // MAX_VERIFY_GAS budget for a self-funded `deploy+self_verify` account deployment only ever
+  // affords a proxy-sized deploy, never this contract's full runtime.
   console.log("\nDeploying Phase C (ERC-7579 smart-account) demo contracts:");
   const ownerValidator = await deploy(signer, OwnerEcdsaValidator, [], "OwnerEcdsaValidator", n(), fees);
   const postTxExecutor = await deploy(signer, PostTxExecutor, [], "PostTxExecutor", n(), fees);
-  const erc7579Factory = await deploy(signer, MinimalERC7579AccountFactory, [], "MinimalERC7579AccountFactory", n(), fees);
+  const erc7579Implementation = await deploy(
+    signer, MinimalERC7579Account, [ownerValidator, postTxExecutor], "MinimalERC7579Account (implementation)", n(), fees,
+  );
+  const erc7579Factory = await deploy(
+    signer, MinimalERC7579AccountProxyFactory, [erc7579Implementation], "MinimalERC7579AccountProxyFactory", n(), fees,
+  );
 
   const MockERC20 = artifact("shared/MockERC20.sol/MockERC20.json");
   const MockSwap = artifact("hegota/MockSwap.sol/MockSwap.json");
@@ -179,6 +189,7 @@ async function main() {
     `VITE_HEGOTA_OWNER_VALIDATOR=${ownerValidator}`,
     `VITE_HEGOTA_POST_TX_EXECUTOR=${postTxExecutor}`,
     `VITE_HEGOTA_ERC7579_FACTORY=${erc7579Factory}`,
+    `VITE_HEGOTA_ERC7579_IMPLEMENTATION=${erc7579Implementation}`,
     `VITE_HEGOTA_IN_TOKEN=${inToken}`,
     `VITE_HEGOTA_OUT_TOKEN=${outToken}`,
     `VITE_HEGOTA_MOCK_SWAP=${mockSwap}`,
