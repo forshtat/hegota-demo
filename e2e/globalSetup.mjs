@@ -103,19 +103,30 @@ export default async function globalSetup() {
   // prefunded devnet account to the exact address the app asked for, so everything downstream
   // (balance polling, the self-paid deploy+self_verify frame transaction) stays genuine. Only the
   // rate-limited third-party hop is replaced. The real faucet is still checked in demo.spec.mjs.
+  // The claim is cross-origin from the app, so the served response needs CORS headers of its own
+  // (and a preflight answer); without them the browser rejects the fulfilled response and the
+  // claim throws exactly as if the faucet had refused it.
+  const cors = {
+    "access-control-allow-origin": "*",
+    "access-control-allow-methods": "POST, OPTIONS",
+    "access-control-allow-headers": "content-type",
+  };
   await ctx.route(/faucet\.hegota\.ethrex\.xyz\/api\/claim/, async (route) => {
+    if (route.request().method() === "OPTIONS") {
+      return route.fulfill({ status: 204, headers: cors, body: "" });
+    }
     let address;
     try {
       ({ address } = JSON.parse(route.request().postData() ?? "{}"));
     } catch {
-      return route.fulfill({ status: 400, body: '{"msg":"bad request"}' });
+      return route.fulfill({ status: 400, headers: cors, body: '{"msg":"bad request"}' });
     }
-    if (!address) return route.fulfill({ status: 400, body: '{"msg":"no address"}' });
+    if (!address) return route.fulfill({ status: 400, headers: cors, body: '{"msg":"no address"}' });
     await (await funder.sendTransaction({ to: address, value: parseEther("2") })).wait();
     console.log(`  [setup] served faucet claim for ${address} (2 ETH)`);
     await route.fulfill({
       status: 200,
-      contentType: "application/json",
+      headers: { ...cors, "content-type": "application/json" },
       body: JSON.stringify({ msg: "ok" }),
     });
   });
