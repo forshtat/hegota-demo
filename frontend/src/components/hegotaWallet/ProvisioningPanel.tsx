@@ -11,7 +11,13 @@ import { Alert, Button, Chip, CircularProgress, Divider, Paper, Stack } from "@m
 import MemoryIcon from "@mui/icons-material/Memory";
 import { useWallet } from "../../contexts/WalletContext.js";
 import { useHegotaWalletPanel } from "../../contexts/HegotaWalletPanelContext.js";
-import { HEGOTA_CHAIN_ID, submitFrameTx, type FrameTxPlan, type PostTxRunResult } from "../../hegotaWallet.js";
+import {
+  HEGOTA_CHAIN_ID,
+  submitFrameTx,
+  InsufficientBalanceError,
+  type FrameTxPlan,
+  type PostTxRunResult,
+} from "../../hegotaWallet.js";
 import { autoWalletSigner, describeFrameTx } from "../../frameSigning.js";
 import { FrameSig, FrameTx, SigScheme } from "../../frametx.js";
 import DeviceReviewScreen from "./DeviceReviewScreen.js";
@@ -50,7 +56,7 @@ async function previewFrameTx(provider: BrowserProvider, plan: FrameTxPlan, sign
 export default function ProvisioningPanel() {
   const { provider } = useWallet();
   const { provisioningTask: task, armId, disarm } = useHegotaWalletPanel();
-  const { notifyMined } = useTxToast();
+  const { notifyMined, notifyError } = useTxToast();
 
   const [stage, setStage] = useState<Stage>("building");
   const [plan, setPlan] = useState<FrameTxPlan | null>(null);
@@ -134,6 +140,10 @@ export default function ProvisioningPanel() {
       task.onResult(runResult);
     } catch (e) {
       setError(formatWalletError(e));
+      // Surfaced as a pop-up (not just the inline Alert) since this is easy to miss otherwise
+      // and the fix (claim from the Faucet) lives in a completely different part of the UI --
+      // the sidebar, not this panel.
+      if (e instanceof InsufficientBalanceError) notifyError(e.message);
       setStage("review");
     }
   }

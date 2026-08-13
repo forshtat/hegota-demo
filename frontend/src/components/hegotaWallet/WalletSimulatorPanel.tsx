@@ -20,7 +20,13 @@ import { useWallet } from "../../contexts/WalletContext.js";
 import { useErc7579Account } from "../../hooks/useErc7579Account.js";
 import { useSafeAccount } from "../../hooks/useSafeAccount.js";
 import { useHegotaWalletPanel } from "../../contexts/HegotaWalletPanelContext.js";
-import { HEGOTA_CHAIN_ID, submitFrameTx, type FrameTxPlan, type PostTxRunResult } from "../../hegotaWallet.js";
+import {
+  HEGOTA_CHAIN_ID,
+  submitFrameTx,
+  InsufficientBalanceError,
+  type FrameTxPlan,
+  type PostTxRunResult,
+} from "../../hegotaWallet.js";
 import { autoWalletSigner, describeFrameTx } from "../../frameSigning.js";
 import { FrameSig, FrameTx, SigScheme } from "../../frametx.js";
 import type { HegotaWalletScenario } from "../../hegotaScenarios/types.js";
@@ -83,7 +89,7 @@ export default function WalletSimulatorPanel<TContext = unknown>({
 }) {
   const { provider, signer, address, chainId } = useWallet();
   const { options, armId, disarm } = useHegotaWalletPanel();
-  const { notifyMined } = useTxToast();
+  const { notifyMined, notifyError } = useTxToast();
   // Both account hooks are called unconditionally (rules of hooks); which one actually gates
   // this scenario depends on its accountKind -- Control-Plane Takeover is authorized through the
   // connected wallet's own Gnosis Safe, the other attack scenarios through an ERC-7579 smart
@@ -381,6 +387,10 @@ export default function WalletSimulatorPanel<TContext = unknown>({
       onDone?.(runResult, triggerAttacker || violationEnabled);
     } catch (e) {
       setError(formatWalletError(e));
+      // Surfaced as a pop-up (not just the inline Alert) since this is easy to miss otherwise
+      // and the fix (claim from the Faucet) lives in a completely different part of the UI --
+      // the sidebar, not this panel.
+      if (e instanceof InsufficientBalanceError) notifyError(e.message);
       setStage("prepared");
     }
   }

@@ -17,7 +17,7 @@
 // (https://faucet.hegota.ethrex.xyz) — never reuse this pattern with a key holding
 // real funds.
 
-import { Wallet, type BrowserProvider } from "ethers";
+import { Wallet, formatEther, type BrowserProvider } from "ethers";
 import { Frame, FrameMode, FrameSig, FrameTx, SigScheme, hex, packFrameSignature } from "./frametx.js";
 import type { FrameSigner } from "./frameSigning.js";
 
@@ -68,6 +68,40 @@ export async function lowFeeOverrides(
   const baseFee = BigInt(block.baseFeePerGas ?? "0x0");
   const maxPriorityFeePerGas = 1_000n;
   return { maxPriorityFeePerGas, maxFeePerGas: baseFee * 4n + maxPriorityFeePerGas };
+}
+
+/** Thrown by `submitFrameTx` before it ever signs or sends anything, when the frame tx's own
+ *  sender can't cover the worst-case cost of the frames it's about to submit -- every EIP-8141
+ *  VERIFY(self) frame reserves payment for the whole tx as part of validation, so an underfunded
+ *  sender fails there with ethrex's opaque "validation prefix frame reverted" RPC error. Callers
+ *  catch this specifically to show an actionable "claim from the Faucet" message instead of that
+ *  raw error -- see WalletSimulatorPanel.tsx/ProvisioningPanel.tsx's handleSubmit. */
+export class InsufficientBalanceError extends Error {
+  constructor(
+    public readonly sender: string,
+    public readonly balance: bigint,
+    public readonly required: bigint,
+  ) {
+    super(
+      `${sender} has ${formatEther(balance)} ETH, but this transaction needs up to ` +
+        `${formatEther(required)} ETH to cover its worst-case gas cost -- claim Hegotá testnet ETH ` +
+        `from the Faucet and try again.`,
+    );
+    this.name = "InsufficientBalanceError";
+  }
+}
+
+function planSenderAddress(sender: string | bigint): string {
+  return typeof sender === "string" ? sender : "0x" + sender.toString(16);
+}
+
+/** Worst-case wei cost of every frame in `plan`: Σ(gasLimit) × maxFee + Σ(value), mirroring
+ *  ordinary EIP-1559 "max cost" (gasLimit × maxFeePerGas + value), just summed frame-by-frame
+ *  since a frame tx has several independently gas-limited frames instead of one. This is exactly
+ *  the quantity the sender needs reserved for the VERIFY(self) frame's payment approval to
+ *  succeed -- see InsufficientBalanceError's own comment. */
+function frameTxMaxCost(plan: FrameTxPlan, maxFee: bigint): bigint {
+  return plan.frames.reduce((total, f) => total + BigInt(f.gasLimit) * maxFee + BigInt(f.value), 0n);
 }
 
 export interface PostTxRunResult {
@@ -132,6 +166,13 @@ export async function submitFrameTx(
   const maxPriorityFee = 1_000n;
   const maxFee = baseFee * 4n + maxPriorityFee;
 
+  const senderAddr = planSenderAddress(plan.sender);
+  const required = frameTxMaxCost(plan, maxFee);
+  const balance = await p.getBalance(senderAddr);
+  if (balance < required) {
+    throw new InsufficientBalanceError(senderAddr, balance, required);
+  }
+
   function build(sig: FrameSig): FrameTx {
     return new FrameTx({
       chainId: HEGOTA_CHAIN_ID,
@@ -173,7 +214,6 @@ export async function submitFrameTx(
   // advanced) rather than just slow to mine. Note: this compares plan.sender's own
   // account-nonce count, which is only meaningful for a plain-account-nonce sender (every
   // self-verify scenario); a pool-as-sender plan with keyed nonces needs a different check.
-  const senderAddr = typeof plan.sender === "string" ? plan.sender : "0x" + plan.sender.toString(16);
   const nonceAfter = BigInt(await p.send("eth_getTransactionCount", [senderAddr, "latest"]));
   if (nonceAfter > nonceBefore) {
     throw new Error(
