@@ -252,10 +252,16 @@ async function main() {
 
   const guardAfter = await readGuardSlot(safeA);
   const thresholdAfter = await readThresholdSlot(safeA);
-  console.log(`  guard slot AFTER attack:  ${guardAfter} (expect 0x0...0)`);
-  console.log(`  threshold slot AFTER attack: ${BigInt(thresholdAfter)} (expect 1)`);
-  assert(BigInt(guardAfter) === 0n, "DELEGATECALL attack did not clear the guard slot -- attack silently no-op'd!");
-  assert(BigInt(thresholdAfter) === 1n, "DELEGATECALL attack did not write the threshold slot");
+  // MaliciousSafeDelegate writes `guard = 0x...dEaD` and `threshold = 0`: it hijacks the
+  // guard to a recognisable sentinel and drops the signature requirement to nothing, which
+  // is the takeover. These assertions previously expected guard == 0 and threshold == 1,
+  // the inverse of what the contract does, so a fully successful attack was reported as
+  // "attack silently no-op'd".
+  const HIJACKED_GUARD = 0xdeadn;
+  console.log(`  guard slot AFTER attack:  ${guardAfter} (expect 0x...dEaD)`);
+  console.log(`  threshold slot AFTER attack: ${BigInt(thresholdAfter)} (expect 0)`);
+  assert(BigInt(guardAfter) === HIJACKED_GUARD, "DELEGATECALL attack did not hijack the guard slot -- attack silently no-op'd!");
+  assert(BigInt(thresholdAfter) === 0n, "DELEGATECALL attack did not zero the threshold slot");
   console.log("  CONFIRMED: the delegatecall attack genuinely rewrites the Safe's own guard/threshold storage when unguarded.");
 
   // ── Scenario 2: benign case through a frame tx with the assertion attached ──────────

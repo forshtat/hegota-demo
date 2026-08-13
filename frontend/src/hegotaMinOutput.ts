@@ -81,7 +81,11 @@ export function buildMinOutputFrames(
 ): { defaultFrame: DefaultFrameCall; postTxFrame: DefaultFrameCall } {
   const swapCall = buildSwapCall(from, amountIn, recipient);
   return {
-    defaultFrame: { target: swapCall.target, data: swapCall.callData, gasLimit: 150_000 },
+    // MockSwap.swap moves three ERC-20 balance slots, and under EIP-8037 state-gas
+    // repricing that measures ~198k on Hegotá, so the original 150_000 made this frame
+    // halt out-of-gas every time and the whole scenario fail. Unused frame gas is
+    // refunded, so the headroom costs nothing beyond the payer's max-cost reservation.
+    defaultFrame: { target: swapCall.target, data: swapCall.callData, gasLimit: 300_000 },
     postTxFrame: buildAssertionCall(minAmount, recipient),
   };
 }
