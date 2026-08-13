@@ -2,8 +2,7 @@
 /.env
 /.env.local
 /frontend/.env.local
-/artifacts/**/*.dbg.json
-/artifacts/build-info/
+/artifacts/
 /cache/
 /node_modules/
 /frontend/node_modules/

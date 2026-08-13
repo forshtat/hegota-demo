@@ -7,7 +7,7 @@
     "node:ethrex:build": "cd ../ethrex && cargo build --release",
     "deploy": "node scripts/demo.mjs",
     "deploy:hegota": "node scripts/deploy-hegota.mjs",
-    "build": "tsc -p tsconfig.frontend.json --noEmit && vite build",
+    "build": "hardhat build && tsc -p tsconfig.frontend.json --noEmit && vite build",
     "dev": "vite",
     "preview": "vite preview",
     "compile": "hardhat build",
