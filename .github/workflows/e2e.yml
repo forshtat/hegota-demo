@@ -1,0 +1,103 @@
+# Browser-level end-to-end checks of the demo against the live Hegotá devnet.
+#
+# This is deliberately NOT a hermetic test job. It drives the real deployed contracts on the
+# real devnet, because that is the only thing that proves the demo still works: every failure
+# this suite has caught so far — a frame encoding the chain stopped accepting, a state budget
+# EIP-8037 needs, a scenario contract that had run out of ETH — is invisible to a local EVM.
+#
+# The cost of that choice is that a devnet outage turns the job red for reasons that have
+# nothing to do with the pull request. It runs on the paths that can actually break the demo
+# rather than on every push, and is safe to re-run.
+name: e2e
+
+on:
+  pull_request:
+    paths:
+      - "frontend/**"
+      - "e2e/**"
+      - "contracts/**"
+      - "playwright.config.mjs"
+      - "package.json"
+      - ".github/workflows/e2e.yml"
+  schedule:
+    # Once a day: the devnet can change under a demo that nobody touched, which is exactly the
+    # class of breakage a PR-triggered job never sees.
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+# Every run funds and provisions from the same prefunded devnet account and reads its nonce
+# from "latest", so two runs in flight collide on the nonce and both fail. Serialise them.
+# Do NOT cancel-in-progress: a cancelled run can leave a half-provisioned account behind.
+concurrency:
+  group: e2e-live-devnet
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      # The frontend build needs compiled artifacts, and the contracts import from these two
+      # submodules. Shallow, and only the ones the build actually reaches.
+      - name: Check out the submodules the build needs
+        run: |
+          git submodule update --init --depth 1 lib/delegation-framework lib/minimal-shielded-pool
+          git -C lib/delegation-framework submodule update --init --depth 1 \
+            lib/account-abstraction lib/erc7579-implementation
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # Browsers are ~120 MB and unchanged between runs; without this they are re-downloaded
+      # every time and dominate the job.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - run: npx playwright install --with-deps chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+      - run: npx playwright install-deps chromium
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+
+      - name: Compile contracts
+        run: npx hardhat build
+
+      # Test the code in this PR, not whatever is deployed at the public URL: a build from this
+      # checkout, served locally, pointed at the live devnet. Without this the job would only
+      # ever re-test the last deployment and would pass while the PR was broken.
+      - name: Build the frontend
+        run: npx vite build
+
+      # Server and suite in one step: a background process started in an earlier step is not
+      # guaranteed to still be there, and a suite that silently tested nothing would pass.
+      - name: Serve the build and run the e2e suite against the live devnet
+        env:
+          DEMO_URL: http://localhost:4173
+        run: |
+          npx vite preview --port 4173 &
+          preview_pid=$!
+          trap 'kill "$preview_pid" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 60); do
+            if curl -sf -o /dev/null http://localhost:4173; then break; fi
+            sleep 1
+          done
+          curl -sf -o /dev/null http://localhost:4173 || { echo "preview server never came up"; exit 1; }
+          npx playwright test
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            test-results/
+          retention-days: 7
