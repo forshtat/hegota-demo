@@ -49,12 +49,24 @@ async function settle(page, card, chip, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   const done = card.getByText(chip, { exact: true }).first();
   const alerts = card.locator(".MuiAlert-root");
+  // The step button only PREPARES the frame transaction; the provisioning drawer then shows the
+  // plan on its device screens and waits for an explicit Submit, which is the whole point of the
+  // demo (you see what you are signing before it is sent). Nothing is broadcast until this is
+  // clicked, so a suite that only clicks the step button waits out the full timeout against a
+  // page that is idle by design -- indistinguishable, from the log, from a chain that dropped
+  // the transaction. Submit is page-level, not inside the step's card.
+  const submit = page.getByRole("button", { name: "Submit transaction" }).first();
   while (Date.now() < deadline) {
     if (await done.isVisible().catch(() => false)) return { ok: true };
     const count = await alerts.count().catch(() => 0);
     for (let i = 0; i < count; i++) {
       const text = (await alerts.nth(i).innerText().catch(() => "")).trim();
       if (/revert|failed|error/i.test(text)) return { ok: false, reason: text.replace(/\s+/g, " ") };
+    }
+    if (await submit.isVisible().catch(() => false)) {
+      if (!(await submit.isDisabled().catch(() => true))) {
+        await submit.click().catch(() => {});
+      }
     }
     await page.waitForTimeout(2000);
   }
