@@ -141,9 +141,9 @@ export const controlPlaneTakeoverScenario: HegotaWalletScenario<{
       nonceKeys: [0],
       nonceSeq,
       frames: [
-        new Frame(FrameMode.VERIFY, 0x03, senderAddress, 80_000, 0, new Uint8Array(0)),
-        new Frame(FrameMode.DEFAULT, 0, signedSafeTx.target, signedSafeTx.gasLimit, 0, getBytes(signedSafeTx.data)),
-        new Frame(FrameMode.POST_TX, 0, assertion.target, assertion.gasLimit, 0, getBytes(assertion.data)),
+        new Frame(FrameMode.VERIFY, 0x03, senderAddress, 80_000, 0, new Uint8Array(0), 0),
+        new Frame(FrameMode.DEFAULT, 0, signedSafeTx.target, signedSafeTx.gasLimit, 0, getBytes(signedSafeTx.data), 1_000_000),
+        new Frame(FrameMode.POST_TX, 0, assertion.target, assertion.gasLimit, 0, getBytes(assertion.data), 300_000),
       ],
     };
   },

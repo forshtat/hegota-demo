@@ -157,6 +157,17 @@ export default async function globalSetup() {
   await (await funder.sendTransaction({ to: addr, value: parseEther("10") })).wait();
   console.log(`  [setup] funded ${addr} with 10 ETH`);
 
+  // The Hidden ETH drain scenario has TestSubject send ETH it must already hold; the contract
+  // is deployed once and never refilled, so a devnet where it has been drained (or was never
+  // funded) fails that scenario alone, with a bare "Transaction reverted" that looks like a
+  // frame or assertion problem rather than an empty contract. Top it up so the suite does not
+  // depend on how much ETH a previous run happened to leave behind.
+  const subject = process.env.DEMO_TEST_SUBJECT ?? "0xe3515fdee552Ae5E420c3484d6BFB8894fd04ECb";
+  if (await provider.getBalance(subject) < parseEther("0.5")) {
+    await (await funder.sendTransaction({ to: subject, value: parseEther("5") })).wait();
+    console.log(`  [setup] topped up TestSubject ${subject}`);
+  }
+
   await page.goto(URL + "/account-setup", { waitUntil: "networkidle" });
   for (const step of STEPS) {
     const { ok, reason } = await runStep(page, step);
