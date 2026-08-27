@@ -49,14 +49,33 @@ const SCENARIOS = [
 
 // A scenario is armable only while `erc7579.isDeployed && erc7579.isFunded`. Each run spends the
 // account's input-token balance, so after a couple of runs the gate closes and every later
-// scenario looks broken for an unrelated reason. Step 2 restores it, and its button stays
-// clickable whenever the account is deployed, so this is safe to repeat.
+// scenario looks broken for an unrelated reason. Step 2 restores it -- but once funded, its
+// button is gone for good (AccountSetup.tsx swaps it for a static "Funded & approved" chip), so a
+// repeat call must recognise that and skip straight past rather than waiting for a button that no
+// longer exists. And under the demo auto-wallet, "Fund & approve" only prepares the frame
+// transaction; the wallet-simulator drawer then needs an explicit "Submit transaction" click
+// before isFunded ever flips true -- same two-step flow globalSetup.mjs's settle() already
+// handles for the initial setup, mirrored here for repeat top-ups mid-suite.
 async function topUp(page) {
   await page.goto(URL + "/account-setup", { waitUntil: "networkidle" });
-  const fund = page.getByRole("button", { name: /Fund & approve|Confirm in wallet/i }).first();
+  const card = page.locator(".MuiPaper-root").filter({ hasText: "Step 2" }).last();
+  const done = card.getByText("Funded & approved", { exact: true }).first();
+  if (await done.isVisible().catch(() => false)) return;
+
+  const fund = card.getByRole("button", { name: /Fund & approve|Confirm in wallet/i }).first();
   await expect(fund).toBeEnabled({ timeout: 60_000 });
   await fund.click();
-  await expect(page.getByRole("button", { name: "Fund & approve" }).first()).toBeEnabled({ timeout: 180_000 });
+
+  const submit = page.getByRole("button", { name: "Submit transaction" }).first();
+  const deadline = Date.now() + 180_000;
+  while (Date.now() < deadline) {
+    if (await done.isVisible().catch(() => false)) return;
+    if ((await submit.isVisible().catch(() => false)) && !(await submit.isDisabled().catch(() => true))) {
+      await submit.click().catch(() => {});
+    }
+    await page.waitForTimeout(2000);
+  }
+  throw new Error("Fund & approve never completed within 180s");
 }
 
 async function arm(page, path, variant) {
