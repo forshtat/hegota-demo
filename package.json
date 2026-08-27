@@ -15,7 +15,8 @@
     "test:metamask": "hardhat test 'test/metamask-enforcers/*.test.ts' --network ethrex",
     "test:safe": "hardhat test 'test/gnosis-safe/*.test.ts' --network ethrex",
     "test:erc6900": "hardhat test 'test/erc6900/*.test.ts' --network ethrex",
-    "test:erc7579": "hardhat test 'test/erc7579/*.test.ts' --network ethrex"
+    "test:erc7579": "hardhat test 'test/erc7579/*.test.ts' --network ethrex",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@emotion/react": "^11.0.0",
@@ -44,6 +45,7 @@
     "@nomicfoundation/hardhat-foundry": "^3.0.3",
     "@nomicfoundation/hardhat-mocha": "^3.0.19",
     "@nomicfoundation/hardhat-toolbox": "^7.0.0",
+    "@playwright/test": "^1.62.1",
     "@safe-global/safe-contracts": "^1.4.1-2",
     "@types/canvas-confetti": "^1.9.0",
     "@types/chai": "^5.2.3",

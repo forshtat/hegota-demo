@@ -174,9 +174,9 @@ export const shieldScenario: HegotaWalletScenario = {
       nonceKeys: [0],
       nonceSeq,
       frames: [
-        new Frame(FrameMode.VERIFY, 0x03, senderAddress, 80_000, 0, new Uint8Array(0)),
-        new Frame(FrameMode.SENDER, 0, POOL, 10_000_000, SHIELD_VALUE, getBytes(shieldCalldata)),
-        new Frame(FrameMode.POST_TX, 0, ASSERTION, 200_000, 0, getBytes(assertCalldata)),
+        new Frame(FrameMode.VERIFY, 0x03, senderAddress, 80_000, 0, new Uint8Array(0), 0),
+        new Frame(FrameMode.SENDER, 0, POOL, 10_000_000, SHIELD_VALUE, getBytes(shieldCalldata), 1_000_000),
+        new Frame(FrameMode.POST_TX, 0, ASSERTION, 200_000, 0, getBytes(assertCalldata), 300_000),
       ],
     };
   },

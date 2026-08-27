@@ -127,9 +127,16 @@ export async function prepareProvisionAccount(
       // limits keep a comfortable margin (prefix total 220k, well under the devnet's
       // MAX_VERIFY_GAS=500k; completeSetup is outside the prefix so isn't budget-constrained
       // at all, but still gets a real limit rather than an arbitrarily huge one).
-      new Frame(FrameMode.DEFAULT, 0, HEGOTA_ERC7579_FACTORY, 200_000, 0, getBytes(createData)),
-      new Frame(FrameMode.VERIFY, 0x03, accountAddress, 20_000, 0, SELF_VERIFY_SENTINEL),
-      new Frame(FrameMode.DEFAULT, 0, accountAddress, 500_000, 0, getBytes(completeSetupData)),
+      //
+      // The state budgets are the second dimension, and they are not optional here: this
+      // transaction's whole point is that the account does not exist yet, so frame 0 both
+      // creates the account and writes the proxy's code, and EIP-8037 prices that growth out
+      // of `limits.state` — the execution budget cannot pay for it. Frame 0's share is kept
+      // under MAX_VERIFY_STATE_GAS (500_000) because it sits in the validation prefix;
+      // completeSetup is outside the prefix, so its slot writes are budgeted freely.
+      new Frame(FrameMode.DEFAULT, 0, HEGOTA_ERC7579_FACTORY, 200_000, 0, getBytes(createData), 450_000),
+      new Frame(FrameMode.VERIFY, 0x03, accountAddress, 20_000, 0, SELF_VERIFY_SENTINEL, 0),
+      new Frame(FrameMode.DEFAULT, 0, accountAddress, 500_000, 0, getBytes(completeSetupData), 1_000_000),
     ],
   };
   return { plan, signerAddress: owner };

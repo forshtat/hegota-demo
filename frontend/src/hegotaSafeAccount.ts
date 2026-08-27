@@ -146,7 +146,7 @@ export async function prepareProvisionSafe(
     nonceKeys: [0],
     nonceSeq,
     frames: [
-      new Frame(FrameMode.VERIFY, 0x03, owner, 80_000, 0, new Uint8Array(0)),
+      new Frame(FrameMode.VERIFY, 0x03, owner, 80_000, 0, new Uint8Array(0), 0),
       // Live-measured real usage: ~798k -- Safe.setup()'s SSTOREs are far more expensive
       // than 500k accounts for under this devnet's Amsterdam-era state-gas repricing (see
       // MinimalERC7579Account.sol's own doc comment on the same repricing hitting code
@@ -154,7 +154,7 @@ export async function prepareProvisionSafe(
       // deploy+self_verify), so it isn't budget-constrained by MAX_VERIFY_GAS at all --
       // only by the overall per-tx gas cap (40M) and block gas limit (200M), both far above
       // this.
-      new Frame(FrameMode.DEFAULT, 0, HEGOTA_SAFE_PROXY_FACTORY, 1_200_000, 0, getBytes(data)),
+      new Frame(FrameMode.DEFAULT, 0, HEGOTA_SAFE_PROXY_FACTORY, 1_200_000, 0, getBytes(data), 1_000_000),
     ],
   };
   return { plan, signerAddress: owner };

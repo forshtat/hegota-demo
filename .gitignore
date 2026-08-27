@@ -10,3 +10,6 @@
 /dist/
 jwt.hex
 /.superpowers/
+e2e/.auth/
+test-results/
+playwright-report/

@@ -72,7 +72,15 @@ export class Frame {
   mode: number;
   flags: number;
   target: string | bigint | null; // null => empty target field (e.g. VERIFY(self) uses target=sender instead)
+  /** EIP-8141 `limits.execution`: this frame's execution-gas budget. */
   gasLimit: bigint | number;
+  /** EIP-8141 `limits.state`: this frame's EIP-8037 state-gas budget.
+   *
+   *  A separate pool that never mixes with the execution budget, so a frame that grows state
+   *  (deploying code, creating an account, writing a fresh slot) must declare it here — its
+   *  execution budget cannot pay for that growth. Zero is right for a frame that only reads or
+   *  overwrites existing state. */
+  stateGasLimit: bigint | number;
   value: bigint | number;
   data: Uint8Array;
 
@@ -83,11 +91,13 @@ export class Frame {
     gasLimit: bigint | number,
     value: bigint | number,
     data: Uint8Array,
+    stateGasLimit: bigint | number = 0,
   ) {
     this.mode = mode;
     this.flags = flags;
     this.target = target;
     this.gasLimit = gasLimit;
+    this.stateGasLimit = stateGasLimit;
     this.value = value;
     this.data = data;
   }
@@ -98,7 +108,11 @@ export class Frame {
       rlpInt(this.mode),
       rlpInt(this.flags),
       tgt,
-      rlpInt(this.gasLimit),
+      // Slot 3 is `limits = [execution, state]`. It was a bare scalar gas_limit in the
+      // earlier EIP-8141 revision; a chain that carries pre-revision history switches at its
+      // `frameLimitsTime`, and blocks on either side accept only their own form, so a node
+      // past that boundary rejects the scalar encoding outright.
+      rlpList([rlpInt(this.gasLimit), rlpInt(this.stateGasLimit)]),
       rlpInt(this.value),
       rlpBytes(this.data),
     ]);

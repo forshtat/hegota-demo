@@ -121,10 +121,10 @@ export function buildPrivateSwapScenario(
         nonceKeys: nf1 < nf2 ? [nf1, nf2] : [nf2, nf1],
         nonceSeq: 0,
         frames: [
-          new Frame(FrameMode.VERIFY, 0x03, POOL, 350_000, 0n, new Uint8Array(0)),
-          new Frame(FrameMode.SENDER, 0, POOL, 10_000_000, 0n, getBytes(withdrawCalldata)),
-          new Frame(FrameMode.DEFAULT, 0, EXECUTOR, 800_000, 0n, getBytes(executeSwapCalldata)),
-          new Frame(FrameMode.POST_TX, 0, ASSERTION, 300_000, 0n, getBytes(assertCalldata)),
+          new Frame(FrameMode.VERIFY, 0x03, POOL, 350_000, 0n, new Uint8Array(0), 0),
+          new Frame(FrameMode.SENDER, 0, POOL, 10_000_000, 0n, getBytes(withdrawCalldata), 1_000_000),
+          new Frame(FrameMode.DEFAULT, 0, EXECUTOR, 800_000, 0n, getBytes(executeSwapCalldata), 1_000_000),
+          new Frame(FrameMode.POST_TX, 0, ASSERTION, 300_000, 0n, getBytes(assertCalldata), 300_000),
         ],
         recentRootRefs: [ref],
       };

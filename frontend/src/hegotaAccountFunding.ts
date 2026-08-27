@@ -163,9 +163,9 @@ export async function prepareFundAndApproveForSwap(
     nonceKeys: [0],
     nonceSeq,
     frames: [
-      new Frame(FrameMode.VERIFY, 0x03, accountAddress, 200_000, 0, SELF_VERIFY_SENTINEL),
-      new Frame(FrameMode.DEFAULT, 0, HEGOTA_IN_TOKEN, 200_000, 0, getBytes(mintCalldata)),
-      new Frame(FrameMode.DEFAULT, 0, HEGOTA_POST_TX_EXECUTOR, 500_000, 0, getBytes(executeData)),
+      new Frame(FrameMode.VERIFY, 0x03, accountAddress, 200_000, 0, SELF_VERIFY_SENTINEL, 0),
+      new Frame(FrameMode.DEFAULT, 0, HEGOTA_IN_TOKEN, 200_000, 0, getBytes(mintCalldata), 1_000_000),
+      new Frame(FrameMode.DEFAULT, 0, HEGOTA_POST_TX_EXECUTOR, 500_000, 0, getBytes(executeData), 1_000_000),
     ],
   };
   return { plan, signerAddress: signer.address };
