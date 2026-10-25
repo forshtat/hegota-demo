@@ -1,8 +1,25 @@
-import { Box, Button, Stack, Typography } from "@mui/material";
+import { Box, Button, IconButton, Stack, SvgIcon, Tooltip, Typography } from "@mui/material";
+import type { SvgIconProps } from "@mui/material";
+import GitHubIcon from "@mui/icons-material/GitHub";
+import TelegramIcon from "@mui/icons-material/Telegram";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { useNavigate } from "react-router-dom";
 import { useTour } from "../../contexts/TourContext.js";
 import { tourStops } from "../../tourStops.js";
+
+function EthereumIcon(props: SvgIconProps) {
+  return (
+    <SvgIcon {...props} viewBox="0 0 24 24">
+      <path d="M12 1.75 5.5 12.4 12 16.2l6.5-3.8L12 1.75zM5.5 13.7 12 22.25l6.5-8.55L12 17.5l-6.5-3.8z" />
+    </SvgIcon>
+  );
+}
+
+const externalLinks = [
+  { label: "GitHub repository", href: "https://github.com/forshtat/hegota-demo", Icon: GitHubIcon },
+  { label: "EIP-7906", href: "https://eips.ethereum.org/EIPS/eip-7906", Icon: EthereumIcon },
+  { label: "Telegram group", href: "https://t.me/+D7Sgv_rCcnw4MzU0", Icon: TelegramIcon },
+];
 
 export default function TourBar() {
   const navigate = useNavigate();
@@ -64,6 +81,13 @@ export default function TourBar() {
         )}
       </Box>
       <Stack direction="row" spacing={1} alignItems="center" sx={{ flexShrink: 0 }}>
+        {externalLinks.map(({ label, href, Icon }) => (
+          <Tooltip key={href} title={label}>
+            <IconButton component="a" href={href} target="_blank" rel="noopener noreferrer" aria-label={label} size="small">
+              <Icon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        ))}
         {isOnTour && !isFirstStop && (
           <Button
             variant="contained"
